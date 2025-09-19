@@ -1,4 +1,4 @@
-// src/modules/formaciones/routes.ts
+// src/modules/cursos/routes.ts
 import { Router } from "express";
 import {
   getAllCourses,

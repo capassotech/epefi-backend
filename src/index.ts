@@ -6,7 +6,7 @@ dotenv.config();
 
 // Routes
 import authRoutes from "./modules/auth/routes";
-import formacionesRoutes from "./modules/formaciones/routes";
+import cursosRoutes from "./modules/cursos/routes";
 import usersRoutes from "./modules/users/routes";
 
 const app = express();
@@ -16,7 +16,7 @@ app.use(cors());
 app.use(express.json());
 
 app.use("/api/auth", authRoutes);
-app.use("/api/formaciones", formacionesRoutes);
+app.use("/api/cursos", cursosRoutes);
 app.use("/api/users", usersRoutes);
 
 app.get("/", (_, res) => {

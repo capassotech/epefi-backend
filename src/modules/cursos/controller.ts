@@ -1,4 +1,4 @@
-// src/modules/formaciones/controller.ts
+// src/modules/cursos/controller.ts
 import type { Request, Response } from "express";
 import { firestore } from "../../config/firebase";
 import type { AuthenticatedRequest } from "../../middleware/authMiddleware";
