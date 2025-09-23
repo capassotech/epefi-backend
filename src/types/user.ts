@@ -16,7 +16,15 @@ export interface LoginData {
   email: string;
   password: string;
 }
-
+export interface FirebaseAuthResponse {
+  localId?: string;
+  idToken?: string;
+  refreshToken?: string;
+  error?: {
+    message: string;
+    code?: string;
+  };
+}
 export interface UpdateProfileData {
   nombre?: string;
   apellido?: string;
