@@ -101,177 +101,71 @@ export const register = async (req: Request, res: Response) => {
   }
 };
 
+// En tu auth/controller.ts
 export const login = async (req: Request, res: Response) => {
   try {
-    const { email, password }: LoginData = req.body;
+    const { email } = req.body; // Solo necesitas el email para verificar
 
-    if (!email || !password) {
-      return res.status(400).json({
-        error: "Email y contraseña son requeridos",
-      });
-    }
+    console.log("🔍 Login verification for:", email);
 
-    // Validar formato de email
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return res.status(400).json({
-        error: "Formato de email inválido",
-      });
-    }
-
-    // Usar la API REST de Firebase Auth (igual que en tu código que funciona)
-    const firebaseApiKey = process.env.FIREBASE_API_KEY; // Mueve esto a variable de entorno
-
-    console.log(`Intentando login para email: ${email}`);
-
+    // NO hagas autenticación aquí - ya se hizo en el frontend
+    // Solo verifica que el usuario existe en Firestore
+    let userRecord;
     try {
-      const response = await fetch(
-        `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${firebaseApiKey}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            email,
-            password,
-            returnSecureToken: true,
-          }),
-        }
-      );
-
-      const authResult = (await response.json()) as FirebaseAuthResponse;
-
-      console.log(`Response status: ${response.status}`);
-      console.log(`Auth result:`, {
-        localId: authResult.localId ? "[PRESENTE]" : "[AUSENTE]",
-        // No loggear tokens por seguridad
-        idToken: authResult.idToken ? "[PRESENTE]" : "[AUSENTE]",
-        refreshToken: authResult.refreshToken ? "[PRESENTE]" : "[AUSENTE]",
-        error: authResult.error ? authResult.error.message : "[SIN ERROR]",
-      });
-
-      if (!response.ok) {
-        console.error(`Error de Firebase Auth:`, authResult.error);
-
-        // Manejar errores específicos de Firebase Auth
-        if (authResult.error?.message === "EMAIL_NOT_FOUND") {
-          console.log(`Usuario no encontrado: ${email}`);
-          return res.status(401).json({
-            error: "Credenciales inválidas",
-          });
-        }
-        if (authResult.error?.message === "INVALID_PASSWORD") {
-          console.log(`Contraseña incorrecta para: ${email}`);
-          return res.status(401).json({
-            error: "Credenciales inválidas",
-          });
-        }
-        if (authResult.error?.message === "USER_DISABLED") {
-          console.log(`Usuario deshabilitado: ${email}`);
-          return res.status(403).json({
-            error: "Usuario deshabilitado",
-          });
-        }
-        if (authResult.error?.message === "TOO_MANY_ATTEMPTS_TRY_LATER") {
-          console.log(`Demasiados intentos para: ${email}`);
-          return res.status(429).json({
-            error: "Demasiados intentos fallidos. Intente más tarde",
-          });
-        }
-
+      userRecord = await firebaseAuth.getUserByEmail(email.toLowerCase());
+      console.log("✅ User found in Firebase:", userRecord.uid);
+    } catch (error: any) {
+      console.log("❌ Firebase error:", error.code);
+      if (error.code === "auth/user-not-found") {
         return res.status(401).json({
-          error: "Credenciales inválidas",
-          details:
-            process.env.NODE_ENV === "development"
-              ? authResult.error?.message
-              : undefined,
+          error: "Usuario no encontrado",
         });
       }
+      throw error;
+    }
 
-      // Si llegamos aquí, las credenciales son válidas
-      const uid = authResult.localId;
+    // Obtener datos adicionales de Firestore
+    const userDoc = await usersCollection.doc(userRecord.uid).get();
 
-      if (!uid) {
-        console.error("No se obtuvo UID de Firebase Auth");
-        return res.status(500).json({
-          error: "Error interno de autenticación",
-        });
-      }
-
-      console.log(`Login exitoso para UID: ${uid}`);
-
-      // Verificar datos adicionales en Firestore
-      const userDoc = await usersCollection.doc(uid).get();
-
-      if (!userDoc.exists) {
-        console.error(`Usuario ${uid} no encontrado en Firestore`);
-        return res.status(404).json({
-          error: "Usuario no encontrado en el sistema",
-        });
-      }
-
-      const userData = userDoc.data();
-
-      // Verificar que el usuario esté activo
-      if (!userData?.activo) {
-        console.log(`Usuario ${uid} está desactivado`);
-        return res.status(403).json({
-          error: "Usuario desactivado. Contacte al administrador",
-        });
-      }
-
-      // Actualizar último acceso
-      await usersCollection.doc(uid).update({
-        fechaUltimoAcceso: new Date(),
-      });
-
-      // Generar token personalizado para el sistema
-      const customToken = await firebaseAuth.createCustomToken(uid);
-      console.log(`Token personalizado generado para UID: ${uid}`);
-
-      return res.json({
-        message: "Login exitoso",
-        customToken,
-        user: {
-          uid,
-          email: userData.email,
-          nombre: userData.nombre,
-          apellido: userData.apellido,
-          dni: userData.dni,
-          role: userData.role,
-          ultimoLogin: new Date(),
-        },
-      });
-    } catch (fetchError: any) {
-      console.error("Error en la petición a Firebase Auth:", fetchError);
-
-      if (
-        fetchError.name === "TypeError" &&
-        fetchError.message.includes("fetch")
-      ) {
-        return res.status(503).json({
-          error: "Error de conectividad con el servicio de autenticación",
-        });
-      }
-
+    if (!userDoc.exists) {
       return res.status(401).json({
-        error: "Error validando credenciales",
-        details:
-          process.env.NODE_ENV === "development"
-            ? fetchError.message
-            : undefined,
+        error: "Usuario no encontrado en la base de datos",
       });
     }
+
+    const userData = userDoc.data();
+
+    if (!userData?.activo) {
+      return res.status(403).json({
+        error: "Cuenta desactivada. Contacte al administrador",
+      });
+    }
+
+    // Actualizar último acceso
+    await usersCollection.doc(userRecord.uid).update({
+      fechaUltimoAcceso: new Date(),
+    });
+
+    return res.status(200).json({
+      message: "Usuario verificado correctamente",
+      user: {
+        uid: userRecord.uid,
+        email: userRecord.email,
+        nombre: userData.nombre,
+        apellido: userData.apellido,
+        dni: userData.dni,
+        role: userData.role,
+        emailVerificado: userRecord.emailVerified,
+        fechaRegistro: userData.fechaRegistro || userData.fechaCreacion,
+      },
+    });
   } catch (error: any) {
-    console.error("Error general en login:", error);
+    console.error("Login verification error:", error);
     return res.status(500).json({
       error: "Error interno del servidor",
-      details:
-        process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
-
 export const logout = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { uid } = req.user;
