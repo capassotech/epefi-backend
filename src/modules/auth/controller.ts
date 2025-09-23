@@ -22,48 +22,41 @@ export const register = async (req: Request, res: Response) => {
     const { email, password, nombre, apellido, dni }: UserRegistrationData =
       req.body;
 
-    // Convertir DNI a string para consistencia
-    const dniString = typeof dni === "string" ? dni.trim() : String(dni).trim();
-
-    // Verificar si el DNI ya existe en Firestore
-    const existingDniQuery = await usersCollection
-      .where("dni", "==", dniString)
+    // Verificar si el DNI ya existe
+    const existingDniQuery = await firestore
+      .collection("users")
+      .where("dni", "==", dni)
       .get();
 
     if (!existingDniQuery.empty) {
       return res.status(409).json({
-        error: "El DNI ya está registrado",
+        error: "Ya existe un usuario registrado con este DNI",
       });
     }
 
     // Crear usuario en Firebase Auth
     const userRecord = await firebaseAuth.createUser({
-      email: email.toLowerCase(),
-      password: password,
+      email,
+      password,
       displayName: `${nombre} ${apellido}`,
     });
 
-    // Definir rol por defecto
-    const userRole = {
-      admin: false,
-      student: true,
-    };
-
-    // Crear documento de usuario en Firestore
+    // Crear perfil de usuario en Firestore
     const userData = {
-      uid: userRecord.uid,
-      email: email.toLowerCase(),
-      nombre: nombre.trim(),
-      apellido: apellido.trim(),
-      dni: dniString,
-      role: userRole,
-      activo: true,
-      fechaCreacion: new Date(),
+      email,
+      nombre,
+      apellido,
+      dni,
+      role: {
+        admin: false,
+        student: true,
+      },
       fechaRegistro: new Date(),
-      emailVerificado: false,
+      fechaActualizacion: new Date(),
+      activo: true,
     };
 
-    await usersCollection.doc(userRecord.uid).set(userData);
+    await firestore.collection("users").doc(userRecord.uid).set(userData);
 
     // Generar token personalizado para respuesta inmediata
     const customToken = await firebaseAuth.createCustomToken(userRecord.uid);
@@ -72,44 +65,49 @@ export const register = async (req: Request, res: Response) => {
       message: "Usuario registrado exitosamente",
       user: {
         uid: userRecord.uid,
-        email: userData.email,
-        nombre: userData.nombre,
-        apellido: userData.apellido,
-        dni: userData.dni,
+        email: userRecord.email,
+        nombre,
+        apellido,
+        dni,
         role: userData.role,
       },
       customToken,
     });
   } catch (error: any) {
-    console.error("Register error:", error);
+    console.error("Error en registro:", error);
 
     if (error.code === "auth/email-already-exists") {
       return res.status(409).json({
-        error: "El email ya está registrado",
+        error: "Ya existe un usuario registrado con este email",
+      });
+    }
+
+    if (error.code === "auth/invalid-email") {
+      return res.status(400).json({
+        error: "Formato de email inválido",
       });
     }
 
     if (error.code === "auth/weak-password") {
       return res.status(400).json({
-        error: "La contraseña es demasiado débil",
+        error: "La contraseña es muy débil",
       });
     }
 
     return res.status(500).json({
-      error: "Error interno del servidor durante el registro",
+      error: "Error interno del servidor",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
 
-// En tu auth/controller.ts
 export const login = async (req: Request, res: Response) => {
   try {
-    const { email } = req.body; // Solo necesitas el email para verificar
+    const { email } = req.body;
 
     console.log("🔍 Login verification for:", email);
 
-    // NO hagas autenticación aquí - ya se hizo en el frontend
-    // Solo verifica que el usuario existe en Firestore
     let userRecord;
     try {
       userRecord = await firebaseAuth.getUserByEmail(email.toLowerCase());
@@ -124,7 +122,6 @@ export const login = async (req: Request, res: Response) => {
       throw error;
     }
 
-    // Obtener datos adicionales de Firestore
     const userDoc = await usersCollection.doc(userRecord.uid).get();
 
     if (!userDoc.exists) {
@@ -141,7 +138,6 @@ export const login = async (req: Request, res: Response) => {
       });
     }
 
-    // Actualizar último acceso
     await usersCollection.doc(userRecord.uid).update({
       fechaUltimoAcceso: new Date(),
     });
@@ -170,10 +166,8 @@ export const logout = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { uid } = req.user;
 
-    // Revocar todos los tokens del usuario
     await firebaseAuth.revokeRefreshTokens(uid);
 
-    // Actualizar última actividad
     await usersCollection.doc(uid).update({
       fechaUltimaActividad: new Date(),
     });
