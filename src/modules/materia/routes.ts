@@ -60,6 +60,8 @@ router.post(
   createMateriaHandler
 );
 
-router.delete("/:id", authMiddleware, validateId, deleteMateriaHandler);
+router.put("/:id", authMiddleware, basicSanitization, validateBody(MateriaSchema), updateMateriaHandler);
+
+router.delete("/:id", deleteMateriaHandler);
 
 export default router;

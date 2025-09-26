@@ -34,6 +34,7 @@ const createCourseHandler = (
   return createCourse(req as AuthenticatedRequest, res);
 };
 
+
 const updateCourseHandler = (
   req: Request,
   res: Response,

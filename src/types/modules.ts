@@ -127,12 +127,16 @@ export const ModuleSchema = z.object({
 });
 
 export const UpdateModuleSchema = ModuleSchema.partial();
+export const UpdateCourseSchema = CourseSchema.partial();
+export const UpdateMateriaSchema = MateriaSchema.partial();
 
 export type ValidatedContent = z.infer<typeof ContentSchema>;
 export type ValidatedUpdateModule = z.infer<typeof UpdateModuleSchema>;
 export type ValidatedModule = z.infer<typeof ModuleSchema>;
+export type ValidatedUpdateCourse = z.infer<typeof UpdateCourseSchema>;
 export type ValidatedCourse = z.infer<typeof CourseSchema>;
 export type ValidatedMateria = z.infer<typeof MateriaSchema>;
+export type ValidatedUpdateMateria = z.infer<typeof UpdateMateriaSchema>;
 export interface Materia {
   id: string;
   nombre: string;
