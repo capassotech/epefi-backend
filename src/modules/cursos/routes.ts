@@ -16,7 +16,7 @@ import {
   validateMultiple,
   basicSanitization,
 } from "../../middleware/zodValidation";
-import { CourseSchema, UpdateCourseSchema } from "../../types/courses";
+import { CourseSchema, UpdateCourseSchema } from "../../types/schemas";
 import { Request, Response, NextFunction } from "express";
 
 const router = Router();

@@ -11,7 +11,7 @@ import {
   validateMultiple,
   basicSanitization,
 } from "../../middleware/zodValidation";
-import { ModuleSchema, UpdateModuleSchema } from "../../types/modules";
+import { ModuleSchema, UpdateModuleSchema } from "../../types/schemas";
 
 const router = Router();
 

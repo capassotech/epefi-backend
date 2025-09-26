@@ -17,7 +17,7 @@ import {
   validateId,
   basicSanitization,
 } from "../../middleware/zodValidation";
-import { MateriaSchema, UpdateMateriaSchema } from "../../types/courses";
+import { MateriaSchema } from "../../types/schemas";
 import { Request, Response, NextFunction } from "express";
 
 const router = Router();

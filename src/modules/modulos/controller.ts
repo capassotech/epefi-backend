@@ -1,11 +1,9 @@
 import { firestore } from "../../config/firebase";
 import { Request, Response } from "express";
-import { ValidatedModule, ValidatedUpdateModule } from "../../types/modules";
+import { ValidatedModule, ValidatedUpdateModule } from "../../types/schemas";
 
 const materiasCollection = firestore.collection("materias");
 const modulosCollection = firestore.collection("modulos");
-const cursosCollection = firestore.collection("cursos");
-
 
 export const getBackModules = async (req: Request, res: Response) => {
   try {

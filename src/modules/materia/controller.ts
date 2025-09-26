@@ -5,7 +5,7 @@ import type { AuthenticatedRequest } from "../../middleware/authMiddleware";
 import type {
   ValidatedMateria,
   ValidatedUpdateMateria,
-} from "../../types/modules";
+} from "../../types/schemas";
 import { validateUser } from "../../utils/utils";
 
 const materiasCollection = firestore.collection("materias");
