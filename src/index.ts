@@ -8,6 +8,8 @@ dotenv.config();
 import authRoutes from "./modules/auth/routes";
 import cursosRoutes from "./modules/cursos/routes";
 import usersRoutes from "./modules/users/routes";
+import materiasRoutes from "./modules/materia/routes";
+import modulosRoutes from "./modules/modulos/routes";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -17,6 +19,8 @@ app.use(express.json());
 
 app.use("/api/auth", authRoutes);
 app.use("/api/cursos", cursosRoutes);
+app.use("/api/materias", materiasRoutes);
+app.use("/api/modulos", modulosRoutes);
 app.use("/api/users", usersRoutes);
 
 app.get("/", (_, res) => {

@@ -53,12 +53,49 @@ export const ContentSchema = z.object({
     .optional(),
 });
 
-export const ModuleSchema = z.object({
-  id_curso: z
+export const CourseSchema = z.object({
+  titulo: z
     .string()
-    .min(1, "El ID del curso es obligatorio")
-    .max(100, "El ID del curso no puede exceder 100 caracteres")
+    .min(1, "El título del curso es obligatorio")
+    .max(200, "El título no puede exceder 200 caracteres")
     .trim(),
+  descripcion: z
+    .string()
+    .min(1, "La descripción del curso es obligatoria")
+    .max(2000, "La descripción no puede exceder 2000 caracteres")
+    .trim(),
+  estado: z.enum(["activo", "inactivo"]).default("activo"),
+  imagen: z
+    .string()
+    .max(200, "La imagen no puede exceder 200 caracteres")
+    .trim()
+    .optional(),
+  precio: z
+    .number()
+    .positive("El precio debe ser un número positivo"),
+  materias: z
+    .array(z.string())
+    .min(1, "Debe incluir al menos una materia")
+    .max(20, "No puede tener más de 20 materias"),
+});
+
+export const MateriaSchema = z.object({
+  nombre: z
+    .string()
+    .min(1, "El nombre de la materia es obligatorio")
+    .max(100, "El nombre de la materia no puede exceder 100 caracteres")
+    .trim(),
+  id_cursos: z
+    .array(z.string())
+    .min(1, "Debe incluir al menos un curso")
+    .max(20, "No puede tener más de 20 cursos"),
+  modulos: z
+    .array(z.string())
+    .min(1, "Debe incluir al menos un módulo")
+    .max(20, "No puede tener más de 20 módulos"),
+});
+
+export const ModuleSchema = z.object({
   titulo: z
     .string()
     .min(1, "El título del módulo es obligatorio")
@@ -69,24 +106,36 @@ export const ModuleSchema = z.object({
     .min(1, "La descripción del módulo es obligatoria")
     .max(2000, "La descripción no puede exceder 2000 caracteres")
     .trim(),
-  temas: z
-    .array(z.string().min(1, "Los temas no pueden estar vacíos"))
-    .min(1, "Debe incluir al menos un tema")
-    .max(20, "No puede tener más de 20 temas"),
-  contenido: z
-    .array(ContentSchema)
-    .min(1, "Debe incluir al menos un contenido")
-    .max(50, "No puede tener más de 50 contenidos"),
+  tipo_contenido: z.enum(TipoContenido),
+  url_contenido: z
+    .string()
+    .min(1, "La URL del contenido es obligatoria"),
+  url_miniatura: z
+    .string()
+    .nullable()
+    .optional(),
+  id_materia: z
+    .string()
+    .min(1, "El ID de la materia es obligatorio")
+    .max(100, "El ID de la materia no puede exceder 100 caracteres")
+    .trim(),
+  bibliografia: z
+    .string()
+    .min(1, "La bibliografía es obligatoria")
+    .max(2000, "La bibliografía no puede exceder 2000 caracteres")
+    .trim(),
 });
 
 export const UpdateModuleSchema = ModuleSchema.partial();
 
-export type ValidatedModule = z.infer<typeof ModuleSchema>;
 export type ValidatedContent = z.infer<typeof ContentSchema>;
 export type ValidatedUpdateModule = z.infer<typeof UpdateModuleSchema>;
+export type ValidatedModule = z.infer<typeof ModuleSchema>;
+export type ValidatedCourse = z.infer<typeof CourseSchema>;
+export type ValidatedMateria = z.infer<typeof MateriaSchema>;
 export interface Materia {
   id: string;
   nombre: string;
-  id_cursos: string[]; // Array of course IDs this materia belongs to
-  modulos: string[]; // Array of module IDs
+  id_cursos: string[]; 
+  modulos: string[]; 
 }

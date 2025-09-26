@@ -85,18 +85,18 @@ export const createMateria = async (
     }
 
     // Verificar que todos los prerrequisitos existen (solo si hay prerrequisitos)
-    if (materiaData.prerrequisitos && materiaData.prerrequisitos.length > 0) {
-      for (const prerequisitoId of materiaData.prerrequisitos) {
-        const prerequisitoExists = await materiasCollection
-          .doc(prerequisitoId)
-          .get();
-        if (!prerequisitoExists.exists) {
-          return res.status(404).json({
-            error: `La materia prerequisito con ID "${prerequisitoId}" no existe`,
-          });
-        }
-      }
-    }
+    // if (materiaData.prerrequisitos && materiaData.prerrequisitos.length > 0) {
+    //   for (const prerequisitoId of materiaData.prerrequisitos) {
+    //     const prerequisitoExists = await materiasCollection
+    //       .doc(prerequisitoId)
+    //       .get();
+    //     if (!prerequisitoExists.exists) {
+    //       return res.status(404).json({
+    //         error: `La materia prerequisito con ID "${prerequisitoId}" no existe`,
+    //       });
+    //     }
+    //   }
+    // }
 
     // Agregar fechas de auditoría
     const materiaWithDates = {
@@ -165,25 +165,25 @@ export const updateMateria = async (
     }
 
     // Verificar prerrequisitos si se están actualizando
-    if (updateData.prerrequisitos && updateData.prerrequisitos.length > 0) {
-      for (const prerequisitoId of updateData.prerrequisitos) {
-        // No puede ser prerrequisito de sí misma
-        if (prerequisitoId === id) {
-          return res.status(400).json({
-            error: "Una materia no puede ser prerrequisito de sí misma",
-          });
-        }
+    // if (updateData.prerrequisitos && updateData.prerrequisitos.length > 0) {
+    //   for (const prerequisitoId of updateData.prerrequisitos) {
+    //     // No puede ser prerrequisito de sí misma
+    //     if (prerequisitoId === id) {
+    //       return res.status(400).json({
+    //         error: "Una materia no puede ser prerrequisito de sí misma",
+    //       });
+    //     }
 
-        const prerequisitoExists = await materiasCollection
-          .doc(prerequisitoId)
-          .get();
-        if (!prerequisitoExists.exists) {
-          return res.status(404).json({
-            error: `La materia prerequisito con ID "${prerequisitoId}" no existe`,
-          });
-        }
-      }
-    }
+    //     const prerequisitoExists = await materiasCollection
+    //       .doc(prerequisitoId)
+    //       .get();
+    //     if (!prerequisitoExists.exists) {
+    //       return res.status(404).json({
+    //         error: `La materia prerequisito con ID "${prerequisitoId}" no existe`,
+    //       });
+    //     }
+    //   }
+    // }
 
     // Agregar fecha de actualización
     const dataToUpdate = {
