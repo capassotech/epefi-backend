@@ -12,6 +12,7 @@ import {
   forgotPassword,
   changePassword,
   refreshToken,
+  getIdToken,
 } from "./controller";
 import {
   validateRequest,
@@ -85,6 +86,13 @@ router.post(
  * @access  Public
  */
 router.post("/verify-token", verifyToken);
+
+/**
+ * @route   POST /api/auth/get-id-token
+ * @desc    Convertir custom token a ID token (SOLO PARA TESTING)
+ * @access  Public
+ */
+router.post("/get-id-token", getIdToken);
 
 // ========== RUTAS PROTEGIDAS ==========
 

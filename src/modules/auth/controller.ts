@@ -41,6 +41,8 @@ export const register = async (req: Request, res: Response) => {
       displayName: `${nombre} ${apellido}`,
     });
 
+    console.log("userRecord", userRecord);
+
     // Crear perfil de usuario en Firestore
     const userData = {
       email,
@@ -60,6 +62,8 @@ export const register = async (req: Request, res: Response) => {
 
     // Generar token personalizado para respuesta inmediata
     const customToken = await firebaseAuth.createCustomToken(userRecord.uid);
+
+    console.log("customToken", customToken);
 
     return res.status(201).json({
       message: "Usuario registrado exitosamente",
@@ -124,6 +128,8 @@ export const login = async (req: Request, res: Response) => {
 
     const userDoc = await usersCollection.doc(userRecord.uid).get();
 
+    console.log("userDoc", userDoc);
+
     if (!userDoc.exists) {
       return res.status(401).json({
         error: "Usuario no encontrado en la base de datos",
@@ -131,6 +137,8 @@ export const login = async (req: Request, res: Response) => {
     }
 
     const userData = userDoc.data();
+
+    console.log("userData", userData);
 
     if (!userData?.activo) {
       return res.status(403).json({
@@ -381,6 +389,93 @@ export const refreshToken = async (
     console.error("Refresh token error:", error);
     return res.status(500).json({
       error: "Error al verificar token",
+    });
+  }
+};
+
+// ENDPOINT ESPECIAL PARA OBTENER ID TOKEN DESDE CUSTOM TOKEN (PARA TESTING)
+export const getIdToken = async (req: Request, res: Response) => {
+  try {
+    const { customToken } = req.body;
+
+    if (!customToken) {
+      return res.status(400).json({
+        error: "Custom token requerido en el body"
+      });
+    }
+
+    console.log("🔄 Convirtiendo custom token a ID token...");
+    console.log("📥 Custom token recibido:", customToken);
+
+    // Usar la API de Firebase para convertir custom token a ID token
+    const firebaseWebAPIKey = process.env.FIREBASE_WEB_API_KEY;
+    
+    if (!firebaseWebAPIKey) {
+      console.error("❌ FIREBASE_WEB_API_KEY no configurada en variables de entorno");
+      return res.status(500).json({
+        error: "Configuración de Firebase incompleta",
+        instructions: {
+          message: "Agrega FIREBASE_WEB_API_KEY a tus variables de entorno",
+          where: "Firebase Console > Project Settings > General > Web API Key"
+        }
+      });
+    }
+
+    // Hacer request a Firebase REST API
+    const response = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${firebaseWebAPIKey}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          token: customToken,
+          returnSecureToken: true
+        })
+      }
+    );
+
+    const firebaseResponse = await response.json() as any;
+
+    if (!response.ok) {
+      console.error("❌ Error de Firebase:", firebaseResponse);
+      return res.status(400).json({
+        error: "Error al convertir custom token",
+        details: firebaseResponse.error?.message || "Token inválido"
+      });
+    }
+
+    const idToken = firebaseResponse.idToken;
+    const refreshToken = firebaseResponse.refreshToken;
+
+    console.log("✅ ID Token generado exitosamente");
+    console.log("🔑 ID Token:", idToken);
+    console.log("🔄 Refresh Token:", refreshToken);
+
+    return res.status(200).json({
+      message: "ID Token generado exitosamente",
+      idToken: idToken,
+      refreshToken: refreshToken,
+      expiresIn: firebaseResponse.expiresIn,
+      usage: {
+        header: "Authorization",
+        value: `Bearer ${idToken}`,
+        example: "Authorization: Bearer " + idToken
+      },
+      testInPostman: {
+        step1: "Copia el idToken de arriba",
+        step2: "En Postman, ve a Headers",
+        step3: "Agrega: Authorization = Bearer [TU_ID_TOKEN]",
+        step4: "Haz requests a endpoints protegidos"
+      }
+    });
+
+  } catch (error: any) {
+    console.error("❌ Error en getIdToken:", error);
+    return res.status(500).json({
+      error: "Error interno al generar ID token",
+      details: error.message
     });
   }
 };
