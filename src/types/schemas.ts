@@ -87,8 +87,8 @@ export const MateriaSchema = z.object({
     .trim(),
   id_cursos: z
     .array(z.string())
-    .min(1, "Debe incluir al menos un curso")
-    .max(20, "No puede tener más de 20 cursos"),
+    .max(20, "No puede tener más de 20 cursos")
+    .optional(),
   modulos: z
     .array(z.string())
     .min(1, "Debe incluir al menos un módulo")
