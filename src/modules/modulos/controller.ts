@@ -1,10 +1,13 @@
 import { firestore } from "../../config/firebase";
 import { Request, Response } from "express";
-import { ValidatedModule, ValidatedUpdateModule } from "../../types/modules";
+import { ValidatedModule, ValidatedUpdateModule } from "../../types/schemas";
+
+const materiasCollection = firestore.collection("materias");
+const modulosCollection = firestore.collection("modulos");
 
 export const getBackModules = async (req: Request, res: Response) => {
   try {
-    const backModules = await firestore.collection("modulos").get();
+    const backModules = await modulosCollection.get();
 
     if (backModules.empty) {
       return res.json([]);
@@ -25,7 +28,7 @@ export const getBackModules = async (req: Request, res: Response) => {
 export const getBackModuleById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const backModule = await firestore.collection("modulos").doc(id).get();
+    const backModule = await modulosCollection.doc(id).get();
 
     if (!backModule.exists) {
       return res.status(404).json({ error: "Módulo no encontrado" });
@@ -42,25 +45,23 @@ export const createBackModule = async (req: Request, res: Response) => {
   try {
     const moduleData: ValidatedModule = req.body;
 
-    const cursoExists = await firestore
-      .collection("courses")
-      .doc(moduleData.id_curso)
+    const materiaExists = await materiasCollection
+      .doc(moduleData.id_materia)
       .get();
-    if (!cursoExists.exists) {
-      return res.status(404).json({ error: "El curso especificado no existe" });
+    if (!materiaExists.exists) {
+      return res.status(404).json({ error: "La materia especificada no existe" });
     }
 
-    const newModule = await firestore.collection("modulos").add({
+    const newModule = await modulosCollection.add({
       ...moduleData,
       fechaCreacion: new Date(),
       fechaActualizacion: new Date(),
     });
 
-    await firestore
-      .collection("courses")
-      .doc(moduleData.id_curso)
+    await materiasCollection
+      .doc(moduleData.id_materia)
       .update({
-        id_modulos: [...cursoExists.data()?.id_modulos, newModule.id],
+        modulos: [...materiaExists.data()?.modulos, newModule.id],
       });
 
     res.status(201).json({
@@ -78,41 +79,38 @@ export const updateBackModule = async (req: Request, res: Response) => {
     const { id } = req.params;
     const updateData: ValidatedUpdateModule = req.body;
 
-    const moduleExists = await firestore.collection("modulos").doc(id).get();
+    const moduleExists = await modulosCollection.doc(id).get();
     if (!moduleExists.exists) {
       return res.status(404).json({ error: "Módulo no encontrado" });
     }
 
-    const cursoExists = await firestore
-      .collection("courses")
-      .doc(updateData.id_curso || "")
+    const materiaExists = await materiasCollection
+      .doc(updateData.id_materia || "")
       .get();
-    if (updateData.id_curso) {
-      if (!cursoExists.exists) {
+    if (updateData.id_materia) {
+      if (!materiaExists.exists) {
         return res
           .status(404)
-          .json({ error: "El curso especificado no existe" });
+          .json({ error: "La materia especificada no existe" });
       }
     }
 
-    await firestore
-      .collection("modulos")
+    await modulosCollection
       .doc(id)
       .update({
         ...updateData,
         fechaActualizacion: new Date(),
       });
 
-    const currentModules = cursoExists.data()?.id_modulos || [];
+    const currentModules = materiaExists.data()?.modulos || [];
     const updatedModules = currentModules.includes(id)
       ? currentModules
       : [...currentModules, id];
 
-    await firestore
-      .collection("courses")
-      .doc(updateData.id_curso || "")
+    await materiasCollection
+      .doc(updateData.id_materia || "")
       .update({
-        id_modulos: updatedModules,
+        modulos: updatedModules,
       });
 
     res.json({
@@ -129,27 +127,25 @@ export const deleteBackModule = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    const moduleExists = await firestore.collection("modulos").doc(id).get();
+    const moduleExists = await modulosCollection.doc(id).get();
     if (!moduleExists.exists) {
       return res.status(404).json({ error: "Módulo no encontrado" });
     }
 
-    const courseRef = await firestore
-      .collection("courses")
-      .doc(moduleExists.data()?.id_curso)
+    const moduleRef = await modulosCollection
+      .doc(moduleExists.data()?.modulos)
       .get();
-    const currentModules = courseRef.data()?.id_modulos || [];
+    const currentModules = moduleRef.data()?.modulos || [];
 
-    await firestore
-      .collection("courses")
-      .doc(moduleExists.data()?.id_curso)
+    await modulosCollection
+      .doc(moduleExists.data()?.modulos)
       .update({
-        id_modulos: currentModules.filter(
+        modulos: currentModules.filter(
           (moduleId: string) => moduleId !== id
         ),
       });
 
-    await firestore.collection("modulos").doc(id).delete();
+    await modulosCollection.doc(id).delete();
     res.json({ message: "Módulo eliminado correctamente" });
   } catch (error) {
     console.error("deleteBackModule error:", error);

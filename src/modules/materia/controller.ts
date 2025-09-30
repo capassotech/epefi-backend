@@ -5,11 +5,12 @@ import type { AuthenticatedRequest } from "../../middleware/authMiddleware";
 import type {
   ValidatedMateria,
   ValidatedUpdateMateria,
-} from "../../types/courses";
+} from "../../types/schemas";
 import { validateUser } from "../../utils/utils";
 
 const materiasCollection = firestore.collection("materias");
 const modulosCollection = firestore.collection("modulos");
+const cursosCollection = firestore.collection("cursos");
 
 export const getAllMaterias = async (_: Request, res: Response) => {
   try {
@@ -63,12 +64,12 @@ export const createMateria = async (
 
     // Verificar que el código de materia no exista ya
     const existingMateria = await materiasCollection
-      .where("codigo", "==", materiaData.codigo)
+      .where("nombre", "==", materiaData.nombre)
       .get();
 
     if (!existingMateria.empty) {
       return res.status(409).json({
-        error: `Ya existe una materia con el código "${materiaData.codigo}"`,
+        error: `Ya existe una materia con el nombre "${materiaData.nombre}"`,
       });
     }
 
@@ -84,15 +85,12 @@ export const createMateria = async (
       }
     }
 
-    // Verificar que todos los prerrequisitos existen (solo si hay prerrequisitos)
-    if (materiaData.prerrequisitos && materiaData.prerrequisitos.length > 0) {
-      for (const prerequisitoId of materiaData.prerrequisitos) {
-        const prerequisitoExists = await materiasCollection
-          .doc(prerequisitoId)
-          .get();
-        if (!prerequisitoExists.exists) {
+    if (materiaData.id_cursos && materiaData.id_cursos.length > 0) {
+      for (const cursoId of materiaData.id_cursos) {
+        const cursoExists = await cursosCollection.doc(cursoId).get();
+        if (!cursoExists.exists) {
           return res.status(404).json({
-            error: `La materia prerequisito con ID "${prerequisitoId}" no existe`,
+            error: `El curso con ID "${cursoId}" no existe`,
           });
         }
       }
@@ -139,15 +137,15 @@ export const updateMateria = async (
     }
 
     // Si se está actualizando el código, verificar que no exista ya
-    if (updateData.codigo) {
+    if (updateData.nombre) {
       const existingMateria = await materiasCollection
-        .where("codigo", "==", updateData.codigo)
+        .where("nombre", "==", updateData.nombre)
         .get();
 
       // Si existe y no es la misma materia que estamos actualizando
       if (!existingMateria.empty && existingMateria.docs[0].id !== id) {
         return res.status(409).json({
-          error: `Ya existe una materia con el código "${updateData.codigo}"`,
+          error: `Ya existe una materia con el nombre "${updateData.nombre}"`,
         });
       }
     }
@@ -164,22 +162,12 @@ export const updateMateria = async (
       }
     }
 
-    // Verificar prerrequisitos si se están actualizando
-    if (updateData.prerrequisitos && updateData.prerrequisitos.length > 0) {
-      for (const prerequisitoId of updateData.prerrequisitos) {
-        // No puede ser prerrequisito de sí misma
-        if (prerequisitoId === id) {
-          return res.status(400).json({
-            error: "Una materia no puede ser prerrequisito de sí misma",
-          });
-        }
-
-        const prerequisitoExists = await materiasCollection
-          .doc(prerequisitoId)
-          .get();
-        if (!prerequisitoExists.exists) {
+    if (updateData.id_cursos && updateData.id_cursos.length > 0) {
+      for (const cursoId of updateData.id_cursos) {
+        const cursoExists = await cursosCollection.doc(cursoId).get();
+        if (!cursoExists.exists) {
           return res.status(404).json({
-            error: `La materia prerequisito con ID "${prerequisitoId}" no existe`,
+            error: `El curso con ID "${cursoId}" no existe`,
           });
         }
       }

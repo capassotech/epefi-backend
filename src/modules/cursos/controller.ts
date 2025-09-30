@@ -4,8 +4,8 @@ import { firestore } from "../../config/firebase";
 import type { AuthenticatedRequest } from "../../middleware/authMiddleware";
 import type {
   ValidatedCourse,
-  ValidatedUpdateCourse,
-} from "../../types/courses";
+  ValidatedUpdateCourse
+} from "../../types/schemas";
 import { validateUser } from "../../utils/utils";
 
 const cursosCollection = firestore.collection("cursos");
@@ -74,13 +74,13 @@ export const createCourse = async (
     }
 
     // Validar fechas si están presentes
-    if (courseData.fechaInicio && courseData.fechaFin) {
-      if (courseData.fechaInicio >= courseData.fechaFin) {
-        return res.status(400).json({
-          error: "La fecha de inicio debe ser anterior a la fecha de fin",
-        });
-      }
-    }
+    // if (courseData && courseData.fechaFin) {
+    //   if (courseData.fechaInicio >= courseData.fechaFin) {
+    //     return res.status(400).json({
+    //       error: "La fecha de inicio debe ser anterior a la fecha de fin",
+    //     });
+    //   }
+    // }
 
     // Agregar fechas de auditoría
     const courseWithDates = {
@@ -135,15 +135,15 @@ export const updateCourse = async (
     }
 
     // Validar fechas si están siendo actualizadas
-    const currentData = courseExists.data();
-    const fechaInicio = updateData.fechaInicio || currentData?.fechaInicio;
-    const fechaFin = updateData.fechaFin || currentData?.fechaFin;
+    // const currentData = courseExists.data();
+    // const fechaInicio = updateData.fechaInicio || currentData?.fechaInicio;
+    // const fechaFin = updateData.fechaFin || currentData?.fechaFin;
 
-    if (fechaInicio && fechaFin && fechaInicio >= fechaFin) {
-      return res.status(400).json({
-        error: "La fecha de inicio debe ser anterior a la fecha de fin",
-      });
-    }
+    // if (fechaInicio && fechaFin && fechaInicio >= fechaFin) {
+    //   return res.status(400).json({
+    //     error: "La fecha de inicio debe ser anterior a la fecha de fin",
+    //   });
+    // }
 
     // Agregar fecha de actualización
     const dataToUpdate = {
@@ -184,7 +184,7 @@ export const deleteCourse = async (
 
     // En lugar de eliminar completamente, marcar como inactivo
     await cursosCollection.doc(id).update({
-      activo: false,
+      estado: "inactivo",
       fechaActualizacion: new Date(),
     });
 

@@ -17,7 +17,7 @@ import {
   validateId,
   basicSanitization,
 } from "../../middleware/zodValidation";
-import { MateriaSchema, UpdateMateriaSchema } from "../../types/courses";
+import { MateriaSchema } from "../../types/schemas";
 import { Request, Response, NextFunction } from "express";
 
 const router = Router();
@@ -49,7 +49,8 @@ const deleteMateriaHandler = (
 
 // Rutas públicas
 router.get("/", getAllMaterias);
-router.get("/:id", validateId, getMateriaById);
+
+router.get("/:id", getMateriaById);
 
 // Rutas protegidas
 router.post(
@@ -60,6 +61,19 @@ router.post(
   createMateriaHandler
 );
 
-router.delete("/:id", authMiddleware, validateId, deleteMateriaHandler);
+router.put(
+  "/:id",
+  authMiddleware,
+  validateId, 
+  basicSanitization,
+  validateBody(MateriaSchema),
+  updateMateriaHandler
+);
+
+router.delete(
+  "/:id",
+  authMiddleware, 
+  deleteMateriaHandler
+);
 
 export default router;
