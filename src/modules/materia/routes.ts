@@ -49,7 +49,8 @@ const deleteMateriaHandler = (
 
 // Rutas públicas
 router.get("/", getAllMaterias);
-router.get("/:id", validateId, getMateriaById);
+
+router.get("/:id", getMateriaById);
 
 // Rutas protegidas
 router.post(
@@ -60,8 +61,19 @@ router.post(
   createMateriaHandler
 );
 
-router.put("/:id", authMiddleware, basicSanitization, validateBody(MateriaSchema), updateMateriaHandler);
+router.put(
+  "/:id",
+  authMiddleware,
+  validateId, 
+  basicSanitization,
+  validateBody(MateriaSchema),
+  updateMateriaHandler
+);
 
-router.delete("/:id", deleteMateriaHandler);
+router.delete(
+  "/:id",
+  authMiddleware, 
+  deleteMateriaHandler
+);
 
 export default router;

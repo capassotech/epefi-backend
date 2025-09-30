@@ -7,13 +7,11 @@ import path from "path";
 let app;
 
 if (getApps().length === 0) {
-  // Opción 1: Usar archivo de credenciales (RECOMENDADO)
   if (process.env.FIREBASE_SERVICE_ACCOUNT_PATH) {
     app = initializeApp({
       credential: cert(path.resolve(process.env.FIREBASE_SERVICE_ACCOUNT_PATH)),
     });
   } else {
-    // Opción 2: Usar variables de entorno (ACTUAL)
     app = initializeApp({
       credential: cert({
         projectId: process.env.FIREBASE_PROJECT_ID,
