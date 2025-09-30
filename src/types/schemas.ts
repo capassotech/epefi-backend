@@ -75,8 +75,9 @@ export const CourseSchema = z.object({
     .positive("El precio debe ser un número positivo"),
   materias: z
     .array(z.string())
-    .min(1, "Debe incluir al menos una materia")
-    .max(20, "No puede tener más de 20 materias"),
+    // .min(1, "Debe incluir al menos una materia")
+    .max(20, "No puede tener más de 20 materias")
+    .optional(),
 });
 
 export const MateriaSchema = z.object({
@@ -91,8 +92,8 @@ export const MateriaSchema = z.object({
     .optional(),
   modulos: z
     .array(z.string())
-    .min(1, "Debe incluir al menos un módulo")
-    .max(20, "No puede tener más de 20 módulos"),
+    .max(20, "No puede tener más de 20 módulos")
+    .optional(),
 });
 
 export const ModuleSchema = z.object({

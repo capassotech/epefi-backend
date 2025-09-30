@@ -14,13 +14,15 @@ import {
 import {
   validateBody,
   validateMultiple,
-  validateId,
+  validateParams,
   basicSanitization,
 } from "../../middleware/zodValidation";
-import { MateriaSchema } from "../../types/schemas";
+import { MateriaSchema, UpdateMateriaSchema } from "../../types/schemas";
+import { z } from "zod";
 import { Request, Response, NextFunction } from "express";
 
 const router = Router();
+const IdParamSchema = z.object({ id: z.string().min(1) });
 
 // Wrappers para manejar AuthenticatedRequest
 const createMateriaHandler = (
@@ -64,9 +66,9 @@ router.post(
 router.put(
   "/:id",
   authMiddleware,
-  validateId, 
+  validateParams(IdParamSchema), 
   basicSanitization,
-  validateBody(MateriaSchema),
+  validateBody(UpdateMateriaSchema),
   updateMateriaHandler
 );
 
