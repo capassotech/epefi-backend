@@ -7,6 +7,7 @@ import type {
   ValidatedUpdateMateria,
 } from "../../types/schemas";
 import { validateUser } from "../../utils/utils";
+import { FieldValue } from "firebase-admin/firestore";
 
 const materiasCollection = firestore.collection("materias");
 const modulosCollection = firestore.collection("modulos");
@@ -96,6 +97,7 @@ export const createMateria = async (
       }
     }
 
+
     // Agregar fechas de auditoría
     const materiaWithDates = {
       ...materiaData,
@@ -104,6 +106,25 @@ export const createMateria = async (
     };
 
     const docRef = await materiasCollection.add(materiaWithDates);
+
+    for (const cursoId of materiaData.id_cursos || []) {
+      const cursoDoc = await cursosCollection.doc(cursoId).get();
+
+      if (cursoDoc.exists) {
+        const cursoData = cursoDoc.data();
+
+        if (cursoData?.materias && Array.isArray(cursoData.materias)) {
+          await cursosCollection.doc(cursoId).update({
+            materias: FieldValue.arrayUnion(docRef.id)
+          });
+        }
+        else {
+          await cursosCollection.doc(cursoId).update({
+            materias: [docRef.id]
+          });
+        }
+      }
+    }
 
     return res.status(201).json({
       id: docRef.id,
@@ -136,7 +157,6 @@ export const updateMateria = async (
       return res.status(404).json({ error: "Materia no encontrada" });
     }
 
-    // Si se está actualizando el código, verificar que no exista ya
     if (updateData.nombre) {
       const existingMateria = await materiasCollection
         .where("nombre", "==", updateData.nombre)
@@ -181,6 +201,25 @@ export const updateMateria = async (
 
     await materiasCollection.doc(id).update(dataToUpdate);
 
+    for (const cursoId of updateData.id_cursos || []) {
+      const cursoDoc = await cursosCollection.doc(cursoId).get();
+
+      if (cursoDoc.exists) {
+        const cursoData = cursoDoc.data();
+
+        if (cursoData?.materias && Array.isArray(cursoData.materias)) {
+          await cursosCollection.doc(cursoId).update({
+            materias: FieldValue.arrayUnion(id)
+          });
+        }
+        else {
+          await cursosCollection.doc(cursoId).update({
+            materias: [id]
+          });
+        }
+      }
+    }
+
     return res.json({
       message: "Materia actualizada exitosamente",
       id: id,
@@ -210,43 +249,25 @@ export const deleteMateria = async (
       return res.status(404).json({ error: "Materia no encontrada" });
     }
 
-    // Verificar si la materia está siendo usada como prerrequisito
-    const materiasConPrerequisito = await materiasCollection
-      .where("prerrequisitos", "array-contains", id)
-      .get();
-
-    if (!materiasConPrerequisito.empty) {
-      return res.status(409).json({
-        error:
-          "No se puede eliminar la materia porque está siendo usada como prerrequisito de otras materias",
-      });
-    }
-
-    // Verificar si la materia está siendo usada en cursos
     const cursosCollection = firestore.collection("cursos");
     const cursosConMateria = await cursosCollection
       .where("materias", "array-contains", id)
       .get();
 
-    if (!cursosConMateria.empty) {
-      return res.status(409).json({
-        error:
-          "No se puede eliminar la materia porque está siendo usada en cursos activos",
+    for (const cursoId of cursosConMateria.docs) {
+      await cursosCollection.doc(cursoId.id).update({
+        materias: FieldValue.arrayRemove(id)
       });
     }
 
-    // En lugar de eliminar completamente, marcar como inactiva
-    await materiasCollection.doc(id).update({
-      activa: false,
-      fechaActualizacion: new Date(),
-    });
+    await materiasCollection.doc(id).delete();
 
     return res.json({
-      message: "Materia desactivada exitosamente",
+      message: "Materia eliminada exitosamente",
       id: id,
     });
   } catch (err) {
     console.error("deleteMateria error:", err);
-    return res.status(500).json({ error: "Error al desactivar materia" });
+    return res.status(500).json({ error: "Error al eliminar materia" });
   }
 };
