@@ -170,6 +170,7 @@ export const login = async (req: Request, res: Response) => {
     });
   }
 };
+
 export const logout = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { uid } = req.user;
