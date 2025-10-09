@@ -124,7 +124,8 @@ export const ModuleSchema = z.object({
     .string()
     .min(1, "La bibliografía es obligatoria")
     .max(2000, "La bibliografía no puede exceder 2000 caracteres")
-    .trim(),
+    .trim()
+    .optional(),
 });
 
 export const UpdateModuleSchema = ModuleSchema.partial();
