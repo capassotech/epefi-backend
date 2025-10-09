@@ -126,27 +126,27 @@ export const updateBackModule = async (req: Request, res: Response) => {
 export const deleteBackModule = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const { id_materia } = req.body;
 
     const moduleExists = await modulosCollection.doc(id).get();
     if (!moduleExists.exists) {
       return res.status(404).json({ error: "Módulo no encontrado" });
     }
 
-    const moduleRef = await modulosCollection
-      .doc(moduleExists.data()?.modulos)
-      .get();
-    const currentModules = moduleRef.data()?.modulos || [];
+    const materiaExists = await materiasCollection.doc(id_materia).get();
+    if (!materiaExists.exists) {
+      return res.status(404).json({ error: "Materia no encontrada" });
+    }
 
-    await modulosCollection
-      .doc(moduleExists.data()?.modulos)
-      .update({
-        modulos: currentModules.filter(
-          (moduleId: string) => moduleId !== id
-        ),
-      });
+    const currentModules = materiaExists.data()?.modulos || [];
+    const updatedModules = currentModules.filter((moduleId: string) => moduleId !== id);
 
     await modulosCollection.doc(id).delete();
-    res.json({ message: "Módulo eliminado correctamente" });
+    await materiasCollection.doc(id_materia).update({
+      modulos: updatedModules,
+    });
+
+    res.json({ message: "Módulo eliminado correctamente", id: id });
   } catch (error) {
     console.error("deleteBackModule error:", error);
     res.status(500).json({ error: "Error al eliminar módulo" });
