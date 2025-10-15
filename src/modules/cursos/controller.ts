@@ -31,6 +31,40 @@ export const getAllCourses = async (_: Request, res: Response) => {
   }
 };
 
+export const getCoursesByUserId = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    // validate that the user exists
+    const userDoc = await firestore.collection('users').doc(id).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    // Search into cursos_asignados field and take all courses ids
+    const cursos_asignados = userDoc.data()?.cursos_asignados;
+    if (cursos_asignados.length === 0) {
+      return res.status(404).json({ error: "Cursos no encontrados" });
+    }
+
+    // Get all courses by its ids
+    const courses = [];
+    for (const curso_id of cursos_asignados) {
+      const doc = await cursosCollection.doc(curso_id).get();
+      if (!doc.exists) {
+        return res.status(404).json({ error: "Curso no encontrado" });
+      }
+      courses.push({ id: doc.id, ...doc.data() });
+    }
+
+    console.log(courses);
+
+    return res.json(courses);
+  } catch (err) {
+    console.error("getCoursesByUserId error:", err);
+    return res.status(500).json({ error: "Error al obtener cursos" });
+  }
+};
+
 export const getCourseById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;

@@ -6,6 +6,7 @@ import {
   createCourse,
   updateCourse,
   deleteCourse,
+  getCoursesByUserId
 } from "./controller";
 import {
   authMiddleware,
@@ -23,6 +24,7 @@ const router = Router();
 
 // Rutas públicas
 router.get("/", getAllCourses);
+router.get("/user/:id", getCoursesByUserId);
 router.get("/:id", getCourseById);
 
 // Wrapper para manejar AuthenticatedRequest correctamente
