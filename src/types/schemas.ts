@@ -25,6 +25,27 @@ export interface Module {
   contenido: Content[];
 }
 
+
+export const UserSchema = z.object({
+  email: z.string().email("El email del usuario es obligatorio"),
+  nombre: z.string().min(1, "El nombre del usuario es obligatorio"),
+  apellido: z.string().min(1, "El apellido del usuario es obligatorio"),
+  password: z.string().min(1, "La contraseña del usuario es obligatoria"),
+  dni: z.string().min(1, "El DNI del usuario es obligatorio"),
+  role: z.object({
+    admin: z.boolean(),
+    student: z.boolean(),
+  }),
+  activo: z.boolean(),
+  cursos_asignados: z.array(z.string()).optional(),
+  emailVerificado: z.boolean(),
+});
+
+export const UpdateUserSchema = UserSchema.partial();
+
+export type ValidatedUser = z.infer<typeof UserSchema>;
+export type ValidatedUpdateUser = z.infer<typeof UpdateUserSchema>;
+
 export const ContentSchema = z.object({
   titulo: z
     .string()
