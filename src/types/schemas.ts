@@ -55,7 +55,6 @@ export const CourseSchema = z.object({
   estado: z.enum(["activo", "inactivo"]).default("activo"),
   imagen: z
     .string()
-    .max(200, "La imagen no puede exceder 200 caracteres")
     .trim()
     .optional(),
   precio: z
@@ -63,7 +62,6 @@ export const CourseSchema = z.object({
     .positive("El precio debe ser un número positivo"),
   materias: z
     .array(z.string())
-    // .min(1, "Debe incluir al menos una materia")
     .max(20, "No puede tener más de 20 materias")
     .optional(),
 });
