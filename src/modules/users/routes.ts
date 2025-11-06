@@ -6,17 +6,19 @@ import { validateBody } from '../../middleware/zodValidation';
 
 const router = Router();
 
-
+// IMPORTANTE: Las rutas específicas deben ir ANTES de las rutas con parámetros
 router.get('/me', authMiddleware, getUserProfile);
 
-router.get('/:id', 
-  authMiddleware, 
-  (req: Request, res: Response) => getUser(req as AuthenticatedRequest, res)
-);
-
+// Ruta raíz debe ir ANTES de /:id
 router.get('/', 
   authMiddleware, 
   (req: Request, res: Response) => getUsers(req as AuthenticatedRequest, res)
+);
+
+// Ruta con parámetro debe ir DESPUÉS de las rutas específicas
+router.get('/:id', 
+  authMiddleware, 
+  (req: Request, res: Response) => getUser(req as AuthenticatedRequest, res)
 );
 
 router.post('/', 
