@@ -33,30 +33,38 @@ export const getAllCourses = async (_: Request, res: Response) => {
 
 export const getCoursesByUserId = async (req: Request, res: Response) => {
   try {
+    console.log("getCoursesByUserId llamado con ID:", req.params.id);
     const { id } = req.params;
+    console.log("Buscando usuario con ID:", id);
     // validate that the user exists
     const userDoc = await firestore.collection('users').doc(id).get();
     if (!userDoc.exists) {
-      return res.status(404).json({ error: "Usuario no encontrado" });
+      console.log("Usuario no encontrado en Firestore, retornando array vacío");
+      // Si el usuario no existe en Firestore, retornar array vacío en lugar de 404
+      // Esto puede pasar si el usuario existe en Firebase Auth pero no en Firestore
+      return res.json([]);
     }
 
     // Search into cursos_asignados field and take all courses ids
     const cursos_asignados = userDoc.data()?.cursos_asignados;
-    if (cursos_asignados.length === 0) {
-      return res.status(404).json({ error: "Cursos no encontrados" });
+    
+    // Si no hay cursos asignados o el array está vacío, retornar array vacío
+    if (!cursos_asignados || !Array.isArray(cursos_asignados) || cursos_asignados.length === 0) {
+      console.log("Usuario no tiene cursos asignados");
+      return res.json([]);
     }
 
     // Get all courses by its ids
     const courses = [];
     for (const curso_id of cursos_asignados) {
       const doc = await cursosCollection.doc(curso_id).get();
-      if (!doc.exists) {
-        return res.status(404).json({ error: "Curso no encontrado" });
+      // Si un curso no existe, simplemente lo omitimos en lugar de retornar error
+      if (doc.exists) {
+        courses.push({ id: doc.id, ...doc.data() });
       }
-      courses.push({ id: doc.id, ...doc.data() });
     }
 
-    console.log(courses);
+    console.log(`Retornando ${courses.length} cursos para el usuario`);
 
     return res.json(courses);
   } catch (err) {
@@ -216,52 +224,15 @@ export const deleteCourse = async (
       return res.status(404).json({ error: "Curso no encontrado" });
     }
 
-    // En lugar de eliminar completamente, marcar como inactivo
-    await cursosCollection.doc(id).update({
-      estado: "inactivo",
-      fechaActualizacion: new Date(),
-    });
+    // Eliminar el curso físicamente (las materias asociadas no se eliminan)
+    await cursosCollection.doc(id).delete();
 
     return res.json({
-      message: "Curso desactivado exitosamente",
+      message: "Curso eliminado exitosamente",
       id: id,
     });
   } catch (err) {
     console.error("deleteCourse error:", err);
-    return res.status(500).json({ error: "Error al desactivar curso" });
-  }
-};
-
-// Método adicional para eliminar permanentemente (solo para admin)
-export const permanentDeleteCourse = async (
-  req: AuthenticatedRequest,
-  res: Response
-) => {
-  const isAuthorized = await validateUser(req);
-  if (!isAuthorized) {
-    return res.status(403).json({
-      error: "No autorizado. Se requieren permisos de administrador.",
-    });
-  }
-
-  try {
-    const { id } = req.params;
-
-    const courseExists = await cursosCollection.doc(id).get();
-    if (!courseExists.exists) {
-      return res.status(404).json({ error: "Curso no encontrado" });
-    }
-
-    await cursosCollection.doc(id).delete();
-
-    return res.json({
-      message: "Curso eliminado permanentemente",
-      id: id,
-    });
-  } catch (err) {
-    console.error("permanentDeleteCourse error:", err);
-    return res
-      .status(500)
-      .json({ error: "Error al eliminar curso permanentemente" });
+    return res.status(500).json({ error: "Error al eliminar curso" });
   }
 };
