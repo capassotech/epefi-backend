@@ -64,7 +64,44 @@ export const CourseSchema = z.object({
     .array(z.string())
     .max(20, "No puede tener más de 20 materias")
     .optional(),
-});
+  fechaInicioDictado: z
+    .union([z.string(), z.date(), z.null()])
+    .optional()
+    .nullable()
+    .transform((val) => {
+      if (!val || val === null) return undefined; // Convertir null a undefined para que no se guarde
+      if (val instanceof Date) return val;
+      if (typeof val === "string" && val.trim() !== "") {
+        const date = new Date(val);
+        return isNaN(date.getTime()) ? undefined : date; // Retornar Date válido o undefined si es inválido
+      }
+      return undefined;
+    }),
+  fechaFinDictado: z
+    .union([z.string(), z.date(), z.null()])
+    .optional()
+    .nullable()
+    .transform((val) => {
+      if (!val || val === null) return undefined; // Convertir null a undefined para que no se guarde
+      if (val instanceof Date) return val;
+      if (typeof val === "string" && val.trim() !== "") {
+        const date = new Date(val);
+        return isNaN(date.getTime()) ? undefined : date; // Retornar Date válido o undefined si es inválido
+      }
+      return undefined;
+    }),
+}).refine(
+  (data) => {
+    if (data.fechaInicioDictado && data.fechaFinDictado) {
+      return data.fechaInicioDictado < data.fechaFinDictado;
+    }
+    return true;
+  },
+  {
+    message: "La fecha de inicio de dictado debe ser anterior a la fecha de fin de dictado",
+    path: ["fechaFinDictado"],
+  }
+);
 
 export const MateriaSchema = z.object({
   nombre: z

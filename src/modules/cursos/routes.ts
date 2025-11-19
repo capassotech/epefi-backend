@@ -22,12 +22,6 @@ import { Request, Response, NextFunction } from "express";
 
 const router = Router();
 
-// Middleware de logging para debug
-router.use((req, res, next) => {
-  console.log(`[CURSOS] ${req.method} ${req.path}`);
-  next();
-});
-
 // Rutas públicas
 // IMPORTANTE: Las rutas específicas deben ir ANTES de las rutas con parámetros genéricos
 router.get("/", getAllCourses);

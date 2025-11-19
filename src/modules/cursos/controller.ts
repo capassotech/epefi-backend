@@ -6,7 +6,7 @@ import type {
   ValidatedCourse,
   ValidatedUpdateCourse
 } from "../../types/schemas";
-import { validateUser } from "../../utils/utils";
+import { validateUser, formatFirestoreDoc } from "../../utils/utils";
 
 const cursosCollection = firestore.collection("cursos");
 const materiasCollection = firestore.collection("materias");
@@ -19,10 +19,7 @@ export const getAllCourses = async (_: Request, res: Response) => {
       return res.json([]);
     }
 
-    const courses = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
+    const courses = snapshot.docs.map((doc) => formatFirestoreDoc(doc));
 
     return res.json(courses);
   } catch (err) {
@@ -60,7 +57,7 @@ export const getCoursesByUserId = async (req: Request, res: Response) => {
       const doc = await cursosCollection.doc(curso_id).get();
       // Si un curso no existe, simplemente lo omitimos en lugar de retornar error
       if (doc.exists) {
-        courses.push({ id: doc.id, ...doc.data() });
+        courses.push(formatFirestoreDoc(doc));
       }
     }
 
@@ -82,7 +79,7 @@ export const getCourseById = async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Curso no encontrado" });
     }
 
-    return res.json({ id: doc.id, ...doc.data() });
+    return res.json(formatFirestoreDoc(doc));
   } catch (err) {
     console.error("getCourseById error:", err);
     return res.status(500).json({ error: "Error al obtener curso" });
@@ -115,29 +112,88 @@ export const createCourse = async (
       }
     }
 
-    // Validar fechas si están presentes
-    // if (courseData && courseData.fechaFin) {
-    //   if (courseData.fechaInicio >= courseData.fechaFin) {
-    //     return res.status(400).json({
-    //       error: "La fecha de inicio debe ser anterior a la fecha de fin",
-    //     });
-    //   }
-    // }
+    // Validar fechas de dictado si están presentes
+    if (courseData.fechaInicioDictado && courseData.fechaFinDictado) {
+      const fechaInicio = courseData.fechaInicioDictado instanceof Date 
+        ? courseData.fechaInicioDictado 
+        : new Date(courseData.fechaInicioDictado);
+      const fechaFin = courseData.fechaFinDictado instanceof Date 
+        ? courseData.fechaFinDictado 
+        : new Date(courseData.fechaFinDictado);
+      
+      if (fechaInicio >= fechaFin) {
+        return res.status(400).json({
+          error: "La fecha de inicio de dictado debe ser anterior a la fecha de fin de dictado",
+        });
+      }
+    }
 
     // Agregar fechas de auditoría
-    const courseWithDates = {
+    // Asegurarse de que las fechas sean objetos Date válidos antes de guardar
+    const courseWithDates: any = {
       ...courseData,
       fechaCreacion: new Date(),
       fechaActualizacion: new Date(),
     };
+    
+    // Asegurar que las fechas sean objetos Date válidos y se incluyan explícitamente
+    // Esto es importante porque Firestore necesita objetos Date, no strings
+    if (courseData.fechaInicioDictado !== undefined && courseData.fechaInicioDictado !== null) {
+      let fechaInicio: Date;
+      if (courseData.fechaInicioDictado instanceof Date) {
+        fechaInicio = courseData.fechaInicioDictado;
+      } else if (typeof courseData.fechaInicioDictado === "string") {
+        fechaInicio = new Date(courseData.fechaInicioDictado);
+      } else {
+        fechaInicio = new Date(courseData.fechaInicioDictado as any);
+      }
+      
+      // Validar que la fecha sea válida
+      if (!isNaN(fechaInicio.getTime())) {
+        courseWithDates.fechaInicioDictado = fechaInicio;
+      }
+    }
+    
+    if (courseData.fechaFinDictado !== undefined && courseData.fechaFinDictado !== null) {
+      let fechaFin: Date;
+      if (courseData.fechaFinDictado instanceof Date) {
+        fechaFin = courseData.fechaFinDictado;
+      } else if (typeof courseData.fechaFinDictado === "string") {
+        fechaFin = new Date(courseData.fechaFinDictado);
+      } else {
+        fechaFin = new Date(courseData.fechaFinDictado as any);
+      }
+      
+      // Validar que la fecha sea válida
+      if (!isNaN(fechaFin.getTime())) {
+        courseWithDates.fechaFinDictado = fechaFin;
+      }
+    }
 
     const docRef = await cursosCollection.add(courseWithDates);
 
-    return res.status(201).json({
+    // Convertir fechas a ISO string para la respuesta
+    const responseData: any = {
       id: docRef.id,
       message: "Curso creado exitosamente",
       ...courseWithDates,
-    });
+    };
+    
+    // Convertir fechas Date a ISO string
+    if (responseData.fechaInicioDictado instanceof Date) {
+      responseData.fechaInicioDictado = responseData.fechaInicioDictado.toISOString();
+    }
+    if (responseData.fechaFinDictado instanceof Date) {
+      responseData.fechaFinDictado = responseData.fechaFinDictado.toISOString();
+    }
+    if (responseData.fechaCreacion instanceof Date) {
+      responseData.fechaCreacion = responseData.fechaCreacion.toISOString();
+    }
+    if (responseData.fechaActualizacion instanceof Date) {
+      responseData.fechaActualizacion = responseData.fechaActualizacion.toISOString();
+    }
+
+    return res.status(201).json(responseData);
   } catch (err) {
     console.error("createCourse error:", err);
     return res.status(500).json({ error: "Error al crear curso" });
@@ -176,22 +232,90 @@ export const updateCourse = async (
       }
     }
 
-    // Validar fechas si están siendo actualizadas
-    // const currentData = courseExists.data();
-    // const fechaInicio = updateData.fechaInicio || currentData?.fechaInicio;
-    // const fechaFin = updateData.fechaFin || currentData?.fechaFin;
+    // Validar fechas de dictado si están siendo actualizadas
+    const currentData = courseExists.data();
+    const fechaInicioDictado = updateData.fechaInicioDictado 
+      ? (updateData.fechaInicioDictado instanceof Date 
+          ? updateData.fechaInicioDictado 
+          : new Date(updateData.fechaInicioDictado))
+      : (currentData?.fechaInicioDictado?.toDate 
+          ? currentData.fechaInicioDictado.toDate() 
+          : currentData?.fechaInicioDictado);
+    const fechaFinDictado = updateData.fechaFinDictado 
+      ? (updateData.fechaFinDictado instanceof Date 
+          ? updateData.fechaFinDictado 
+          : new Date(updateData.fechaFinDictado))
+      : (currentData?.fechaFinDictado?.toDate 
+          ? currentData.fechaFinDictado.toDate() 
+          : currentData?.fechaFinDictado);
 
-    // if (fechaInicio && fechaFin && fechaInicio >= fechaFin) {
-    //   return res.status(400).json({
-    //     error: "La fecha de inicio debe ser anterior a la fecha de fin",
-    //   });
-    // }
+    if (fechaInicioDictado && fechaFinDictado) {
+      const inicio = fechaInicioDictado instanceof Date ? fechaInicioDictado : new Date(fechaInicioDictado);
+      const fin = fechaFinDictado instanceof Date ? fechaFinDictado : new Date(fechaFinDictado);
+      
+      if (inicio >= fin) {
+        return res.status(400).json({
+          error: "La fecha de inicio de dictado debe ser anterior a la fecha de fin de dictado",
+        });
+      }
+    }
 
     // Agregar fecha de actualización
-    const dataToUpdate = {
+    // Asegurarse de que las fechas sean objetos Date válidos antes de actualizar
+    const dataToUpdate: any = {
       ...updateData,
       fechaActualizacion: new Date(),
     };
+    
+    // Asegurar que las fechas sean objetos Date válidos si están presentes
+    // IMPORTANTE: Verificar tanto undefined como null, y también strings
+    if (updateData.fechaInicioDictado !== undefined && updateData.fechaInicioDictado !== null) {
+      const fechaInicioValue: any = updateData.fechaInicioDictado;
+      let fechaInicio: Date;
+      if (fechaInicioValue instanceof Date) {
+        fechaInicio = fechaInicioValue;
+      } else if (typeof fechaInicioValue === "string") {
+        const trimmed = fechaInicioValue.trim();
+        fechaInicio = trimmed !== "" ? new Date(trimmed) : new Date(fechaInicioValue);
+      } else {
+        fechaInicio = new Date(fechaInicioValue);
+      }
+      
+      // Validar que la fecha sea válida antes de guardar
+      if (!isNaN(fechaInicio.getTime())) {
+        dataToUpdate.fechaInicioDictado = fechaInicio;
+      } else {
+        // Si la fecha es inválida, eliminarla del objeto para que no se guarde
+        delete dataToUpdate.fechaInicioDictado;
+      }
+    } else {
+      // Si viene como null o undefined, eliminarlo explícitamente para que no se guarde
+      delete dataToUpdate.fechaInicioDictado;
+    }
+    
+    if (updateData.fechaFinDictado !== undefined && updateData.fechaFinDictado !== null) {
+      const fechaFinValue: any = updateData.fechaFinDictado;
+      let fechaFin: Date;
+      if (fechaFinValue instanceof Date) {
+        fechaFin = fechaFinValue;
+      } else if (typeof fechaFinValue === "string") {
+        const trimmed = fechaFinValue.trim();
+        fechaFin = trimmed !== "" ? new Date(trimmed) : new Date(fechaFinValue);
+      } else {
+        fechaFin = new Date(fechaFinValue);
+      }
+      
+      // Validar que la fecha sea válida antes de guardar
+      if (!isNaN(fechaFin.getTime())) {
+        dataToUpdate.fechaFinDictado = fechaFin;
+      } else {
+        // Si la fecha es inválida, eliminarla del objeto para que no se guarde
+        delete dataToUpdate.fechaFinDictado;
+      }
+    } else {
+      // Si viene como null o undefined, eliminarlo explícitamente para que no se guarde
+      delete dataToUpdate.fechaFinDictado;
+    }
 
     await cursosCollection.doc(id).update(dataToUpdate);
 

@@ -10,7 +10,6 @@ export const validateSchema = (
   return (req: Request, res: Response, next: NextFunction) => {
     try {
       const dataToValidate = req[target];
-
       const validatedData = schema.parse(dataToValidate);
 
       (req as any)[target] = validatedData;
