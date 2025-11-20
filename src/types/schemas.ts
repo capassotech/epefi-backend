@@ -64,6 +64,14 @@ export const CourseSchema = z.object({
     .array(z.string())
     .max(20, "No puede tener más de 20 materias")
     .optional(),
+  planDeEstudiosUrl: z
+    .union([z.string().url("La URL del plan de estudios debe ser válida"), z.null(), z.literal("")])
+    .optional()
+    .transform((val) => (val === "" ? null : val)),
+  fechasDeExamenesUrl: z
+    .union([z.string().url("La URL de fechas de exámenes debe ser válida"), z.null(), z.literal("")])
+    .optional()
+    .transform((val) => (val === "" ? null : val)),
 });
 
 export const MateriaSchema = z.object({

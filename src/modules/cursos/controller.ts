@@ -6,7 +6,7 @@ import type {
   ValidatedCourse,
   ValidatedUpdateCourse
 } from "../../types/schemas";
-import { validateUser } from "../../utils/utils";
+import { validateUser, formatFirestoreDoc } from "../../utils/utils";
 
 const cursosCollection = firestore.collection("cursos");
 const materiasCollection = firestore.collection("materias");
@@ -19,10 +19,7 @@ export const getAllCourses = async (_: Request, res: Response) => {
       return res.json([]);
     }
 
-    const courses = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
+    const courses = snapshot.docs.map((doc) => formatFirestoreDoc(doc));
 
     return res.json(courses);
   } catch (err) {
@@ -60,7 +57,7 @@ export const getCoursesByUserId = async (req: Request, res: Response) => {
       const doc = await cursosCollection.doc(curso_id).get();
       // Si un curso no existe, simplemente lo omitimos en lugar de retornar error
       if (doc.exists) {
-        courses.push({ id: doc.id, ...doc.data() });
+        courses.push(formatFirestoreDoc(doc));
       }
     }
 
@@ -82,7 +79,7 @@ export const getCourseById = async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Curso no encontrado" });
     }
 
-    return res.json({ id: doc.id, ...doc.data() });
+    return res.json(formatFirestoreDoc(doc));
   } catch (err) {
     console.error("getCourseById error:", err);
     return res.status(500).json({ error: "Error al obtener curso" });
@@ -125,18 +122,30 @@ export const createCourse = async (
     // }
 
     // Agregar fechas de auditoría
-    const courseWithDates = {
+    const courseWithDates: any = {
       ...courseData,
       fechaCreacion: new Date(),
       fechaActualizacion: new Date(),
     };
 
+    // Agregar fechas de actualización de PDFs si se proporcionan las URLs
+    if (courseData.planDeEstudiosUrl) {
+      courseWithDates.planDeEstudiosFechaActualizacion = new Date();
+    }
+    if (courseData.fechasDeExamenesUrl) {
+      courseWithDates.fechasDeExamenesFechaActualizacion = new Date();
+    }
+
     const docRef = await cursosCollection.add(courseWithDates);
+
+    // Obtener el documento guardado para formatear las fechas correctamente
+    const savedDoc = await docRef.get();
+    const formattedDoc = formatFirestoreDoc(savedDoc);
 
     return res.status(201).json({
       id: docRef.id,
       message: "Curso creado exitosamente",
-      ...courseWithDates,
+      ...formattedDoc,
     });
   } catch (err) {
     console.error("createCourse error:", err);
@@ -188,10 +197,33 @@ export const updateCourse = async (
     // }
 
     // Agregar fecha de actualización
-    const dataToUpdate = {
+    const dataToUpdate: any = {
       ...updateData,
       fechaActualizacion: new Date(),
     };
+
+    // Actualizar fechas de actualización de PDFs si se están actualizando las URLs
+    const currentData = courseExists.data();
+    
+    // Si se está actualizando planDeEstudiosUrl y es diferente al actual, actualizar la fecha
+    if (updateData.planDeEstudiosUrl !== undefined) {
+      if (updateData.planDeEstudiosUrl && updateData.planDeEstudiosUrl !== currentData?.planDeEstudiosUrl) {
+        dataToUpdate.planDeEstudiosFechaActualizacion = new Date();
+      } else if (!updateData.planDeEstudiosUrl) {
+        // Si se está eliminando la URL, también eliminar la fecha de actualización
+        dataToUpdate.planDeEstudiosFechaActualizacion = null;
+      }
+    }
+
+    // Si se está actualizando fechasDeExamenesUrl y es diferente al actual, actualizar la fecha
+    if (updateData.fechasDeExamenesUrl !== undefined) {
+      if (updateData.fechasDeExamenesUrl && updateData.fechasDeExamenesUrl !== currentData?.fechasDeExamenesUrl) {
+        dataToUpdate.fechasDeExamenesFechaActualizacion = new Date();
+      } else if (!updateData.fechasDeExamenesUrl) {
+        // Si se está eliminando la URL, también eliminar la fecha de actualización
+        dataToUpdate.fechasDeExamenesFechaActualizacion = null;
+      }
+    }
 
     await cursosCollection.doc(id).update(dataToUpdate);
 
