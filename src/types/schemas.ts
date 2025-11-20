@@ -117,12 +117,21 @@ export const ModuleSchema = z.object({
 });
 
 export const UpdateUserSchema = UserSchema.partial();
+
+// Schema para actualización de perfil del usuario (solo campos editables)
+export const UpdateProfileSchema = z.object({
+  nombre: z.string().min(1, "El nombre del usuario es obligatorio").trim().optional(),
+  apellido: z.string().min(1, "El apellido del usuario es obligatorio").trim().optional(),
+  dni: z.string().min(1, "El DNI del usuario es obligatorio").trim().optional(),
+  email: z.string().email("El email del usuario debe ser válido").optional(),
+});
 export const UpdateModuleSchema = ModuleSchema.partial();
 export const UpdateCourseSchema = CourseSchema.partial();
 export const UpdateMateriaSchema = MateriaSchema.partial();
 
 export type ValidatedUser = z.infer<typeof UserSchema>;
 export type ValidatedUpdateUser = z.infer<typeof UpdateUserSchema>;
+export type ValidatedUpdateProfile = z.infer<typeof UpdateProfileSchema>;
 export type ValidatedUpdateModule = z.infer<typeof UpdateModuleSchema>;
 export type ValidatedModule = z.infer<typeof ModuleSchema>;
 export type ValidatedUpdateCourse = z.infer<typeof UpdateCourseSchema>;

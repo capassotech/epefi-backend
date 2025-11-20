@@ -1,13 +1,21 @@
 import { NextFunction, Router, Request, Response } from 'express';
 import { AuthenticatedRequest, authMiddleware } from '../../middleware/authMiddleware';
-import { getUser, getUsers, getUserProfile, deleteUser, updateUser, asignCourseToUser, createUser } from './controller';
-import { UpdateUserSchema, UserSchema } from '../../types/schemas';
-import { validateBody } from '../../middleware/zodValidation';
+import { getUser, getUsers, getUserProfile, deleteUser, updateUser, updateProfile, asignCourseToUser, createUser } from './controller';
+import { UpdateUserSchema, UserSchema, UpdateProfileSchema } from '../../types/schemas';
+import { validateBody, basicSanitization } from '../../middleware/zodValidation';
 
 const router = Router();
 
 // IMPORTANTE: Las rutas específicas deben ir ANTES de las rutas con parámetros
 router.get('/me', authMiddleware, getUserProfile);
+
+// Ruta para que el usuario actualice su propio perfil
+router.put('/me', 
+  authMiddleware,
+  basicSanitization,
+  validateBody(UpdateProfileSchema),
+  (req: Request, res: Response) => updateProfile(req as AuthenticatedRequest, res)
+);
 
 // Ruta raíz debe ir ANTES de /:id
 router.get('/', 
