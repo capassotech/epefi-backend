@@ -21,7 +21,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/cursos", cursosRoutes);
 app.use("/api/materias", materiasRoutes);
 app.use("/api/modulos", modulosRoutes);
-app.use("/api/usuarios", usersRoutes);
+app.use("/api/users", usersRoutes);
 
 app.get("/", (_, res) => {
   res.json({
