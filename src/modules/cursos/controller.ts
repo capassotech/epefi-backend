@@ -1,6 +1,7 @@
 // src/modules/cursos/controller.ts
 import type { Request, Response } from "express";
 import { firestore } from "../../config/firebase";
+import { FieldValue } from "firebase-admin/firestore";
 import type { AuthenticatedRequest } from "../../middleware/authMiddleware";
 import type {
   ValidatedCourse,
@@ -173,6 +174,8 @@ export const updateCourse = async (
       return res.status(404).json({ error: "Curso no encontrado" });
     }
 
+    const currentData = courseExists.data();
+
     // Verificar que todas las materias existen (solo si se están actualizando)
     if (updateData.materias && updateData.materias.length > 0) {
       for (const materiaId of updateData.materias) {
@@ -196,40 +199,71 @@ export const updateCourse = async (
     //   });
     // }
 
-    // Agregar fecha de actualización
+    // Preparar datos para actualizar, excluyendo campos undefined
     const dataToUpdate: any = {
-      ...updateData,
       fechaActualizacion: new Date(),
     };
 
+    // Copiar todos los campos de updateData excepto los de PDF (los manejamos por separado)
+    Object.keys(updateData).forEach((key) => {
+      if (
+        key !== 'planDeEstudiosUrl' && 
+        key !== 'fechasDeExamenesUrl' && 
+        key !== 'planDeEstudiosFechaActualizacion' &&
+        key !== 'fechasDeExamenesFechaActualizacion' &&
+        updateData[key as keyof typeof updateData] !== undefined
+      ) {
+        dataToUpdate[key] = updateData[key as keyof typeof updateData];
+      }
+    });
+
     // Actualizar fechas de actualización de PDFs si se están actualizando las URLs
-    const currentData = courseExists.data();
+    // IMPORTANTE: Solo actualizamos si el campo está explícitamente presente en updateData
+    // Si el frontend no envía el campo, no lo tocamos (permite actualizar solo un PDF a la vez)
     
-    // Si se está actualizando planDeEstudiosUrl y es diferente al actual, actualizar la fecha
+    // Si se está actualizando planDeEstudiosUrl
     if (updateData.planDeEstudiosUrl !== undefined) {
-      if (updateData.planDeEstudiosUrl && updateData.planDeEstudiosUrl !== currentData?.planDeEstudiosUrl) {
+      const currentUrl = currentData?.planDeEstudiosUrl;
+      const newUrl = updateData.planDeEstudiosUrl;
+      
+      if (newUrl === null || newUrl === '' || newUrl === undefined) {
+        // Si se está eliminando la URL, eliminar el campo completamente de Firestore
+        dataToUpdate.planDeEstudiosUrl = FieldValue.delete();
+        dataToUpdate.planDeEstudiosFechaActualizacion = FieldValue.delete();
+      } else if (newUrl !== currentUrl) {
+        // Solo actualizar si la URL es diferente a la actual
+        dataToUpdate.planDeEstudiosUrl = newUrl;
         dataToUpdate.planDeEstudiosFechaActualizacion = new Date();
-      } else if (!updateData.planDeEstudiosUrl) {
-        // Si se está eliminando la URL, también eliminar la fecha de actualización
-        dataToUpdate.planDeEstudiosFechaActualizacion = null;
       }
     }
 
-    // Si se está actualizando fechasDeExamenesUrl y es diferente al actual, actualizar la fecha
+    // Si se está actualizando fechasDeExamenesUrl
     if (updateData.fechasDeExamenesUrl !== undefined) {
-      if (updateData.fechasDeExamenesUrl && updateData.fechasDeExamenesUrl !== currentData?.fechasDeExamenesUrl) {
+      const currentUrl = currentData?.fechasDeExamenesUrl;
+      const newUrl = updateData.fechasDeExamenesUrl;
+      
+      if (newUrl === null || newUrl === '' || newUrl === undefined) {
+        // Si se está eliminando la URL, eliminar el campo completamente de Firestore
+        dataToUpdate.fechasDeExamenesUrl = FieldValue.delete();
+        dataToUpdate.fechasDeExamenesFechaActualizacion = FieldValue.delete();
+      } else if (newUrl !== currentUrl) {
+        // Solo actualizar si la URL es diferente a la actual
+        dataToUpdate.fechasDeExamenesUrl = newUrl;
         dataToUpdate.fechasDeExamenesFechaActualizacion = new Date();
-      } else if (!updateData.fechasDeExamenesUrl) {
-        // Si se está eliminando la URL, también eliminar la fecha de actualización
-        dataToUpdate.fechasDeExamenesFechaActualizacion = null;
       }
     }
 
     await cursosCollection.doc(id).update(dataToUpdate);
 
+    // Obtener el documento actualizado para formatear las fechas correctamente
+    await new Promise(resolve => setTimeout(resolve, 100)); // Pequeño delay para propagación
+    const updatedDoc = await cursosCollection.doc(id).get();
+    const formattedDoc = formatFirestoreDoc(updatedDoc);
+
     return res.json({
       message: "Curso actualizado exitosamente",
       id: id,
+      ...formattedDoc,
     });
   } catch (err) {
     console.error("updateCourse error:", err);
