@@ -170,30 +170,25 @@ export const createCourse = async (
       }
     }
 
+    // Agregar fechas de actualización de PDFs si se proporcionan las URLs
+    if (courseData.planDeEstudiosUrl) {
+      courseWithDates.planDeEstudiosFechaActualizacion = new Date();
+    }
+    if (courseData.fechasDeExamenesUrl) {
+      courseWithDates.fechasDeExamenesFechaActualizacion = new Date();
+    }
+
     const docRef = await cursosCollection.add(courseWithDates);
 
-    // Convertir fechas a ISO string para la respuesta
-    const responseData: any = {
+    // Obtener el documento guardado para formatear las fechas correctamente
+    const savedDoc = await docRef.get();
+    const formattedDoc = formatFirestoreDoc(savedDoc);
+
+    return res.status(201).json({
       id: docRef.id,
       message: "Curso creado exitosamente",
-      ...courseWithDates,
-    };
-    
-    // Convertir fechas Date a ISO string
-    if (responseData.fechaInicioDictado instanceof Date) {
-      responseData.fechaInicioDictado = responseData.fechaInicioDictado.toISOString();
-    }
-    if (responseData.fechaFinDictado instanceof Date) {
-      responseData.fechaFinDictado = responseData.fechaFinDictado.toISOString();
-    }
-    if (responseData.fechaCreacion instanceof Date) {
-      responseData.fechaCreacion = responseData.fechaCreacion.toISOString();
-    }
-    if (responseData.fechaActualizacion instanceof Date) {
-      responseData.fechaActualizacion = responseData.fechaActualizacion.toISOString();
-    }
-
-    return res.status(201).json(responseData);
+      ...formattedDoc,
+    });
   } catch (err) {
     console.error("createCourse error:", err);
     return res.status(500).json({ error: "Error al crear curso" });
@@ -315,6 +310,27 @@ export const updateCourse = async (
     } else {
       // Si viene como null o undefined, eliminarlo explícitamente para que no se guarde
       delete dataToUpdate.fechaFinDictado;
+    }
+
+    // Actualizar fechas de actualización de PDFs si se están actualizando las URLs
+    // Si se está actualizando planDeEstudiosUrl y es diferente al actual, actualizar la fecha
+    if (updateData.planDeEstudiosUrl !== undefined) {
+      if (updateData.planDeEstudiosUrl && updateData.planDeEstudiosUrl !== currentData?.planDeEstudiosUrl) {
+        dataToUpdate.planDeEstudiosFechaActualizacion = new Date();
+      } else if (!updateData.planDeEstudiosUrl) {
+        // Si se está eliminando la URL, también eliminar la fecha de actualización
+        dataToUpdate.planDeEstudiosFechaActualizacion = null;
+      }
+    }
+
+    // Si se está actualizando fechasDeExamenesUrl y es diferente al actual, actualizar la fecha
+    if (updateData.fechasDeExamenesUrl !== undefined) {
+      if (updateData.fechasDeExamenesUrl && updateData.fechasDeExamenesUrl !== currentData?.fechasDeExamenesUrl) {
+        dataToUpdate.fechasDeExamenesFechaActualizacion = new Date();
+      } else if (!updateData.fechasDeExamenesUrl) {
+        // Si se está eliminando la URL, también eliminar la fecha de actualización
+        dataToUpdate.fechasDeExamenesFechaActualizacion = null;
+      }
     }
 
     await cursosCollection.doc(id).update(dataToUpdate);

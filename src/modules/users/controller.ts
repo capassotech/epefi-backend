@@ -1,18 +1,33 @@
 import { Request, Response } from 'express';
 import { firebaseAuth, firestore } from '../../config/firebase';
-import { ValidatedUpdateUser, ValidatedUser } from '../../types/schemas';
+import { ValidatedUpdateUser, ValidatedUser, ValidatedUpdateProfile } from '../../types/schemas';
 import { validateUser } from '../../utils/utils';
 import { AuthenticatedRequest } from '../../middleware/authMiddleware';
 
-export const getUserProfile = async (req: any, res: Response) => {
-  const uid = req.user.uid;
-  const userDoc = await firestore.collection('users').doc(uid).get();
+export const getUserProfile = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const uid = req.user.uid;
+    const userDoc = await firestore.collection('users').doc(uid).get();
 
-  if (!userDoc.exists) {
-    return res.status(404).json({ error: 'Usuario no encontrado' });
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    const userData = userDoc.data();
+    
+    // Devolver solo los campos permitidos para la vista del perfil
+    const profileData = {
+      nombre: userData?.nombre || '',
+      apellido: userData?.apellido || '',
+      dni: userData?.dni || '',
+      email: userData?.email || '',
+    };
+
+    return res.json(profileData);
+  } catch (error) {
+    console.error('Error fetching user profile:', error);
+    return res.status(500).json({ error: 'Error al obtener el perfil del usuario' });
   }
-
-  return res.json(userDoc.data());
 };
 
 export const getUser = async (req: AuthenticatedRequest, res: Response) => {
@@ -170,6 +185,134 @@ export const deleteUser = async (req: AuthenticatedRequest, res: Response) => {
     });
   } catch (error) {
     console.error('Error deleting user:', error);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+};
+
+export const updateProfile = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const uid = req.user.uid;
+    const updateData: ValidatedUpdateProfile = req.body;
+
+    const userDoc = await firestore.collection('users').doc(uid).get();
+
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    const currentData = userDoc.data();
+
+    // Validar que el DNI no esté en uso por otro usuario (solo si se está actualizando)
+    if (updateData.dni && updateData.dni !== currentData?.dni) {
+      const existingDniQuery = await firestore
+        .collection("users")
+        .where("dni", "==", updateData.dni)
+        .get();
+
+      if (!existingDniQuery.empty && existingDniQuery.docs[0].id !== uid) {
+        return res.status(409).json({
+          error: "Ya existe un usuario registrado con este DNI",
+        });
+      }
+    }
+
+    // Validar que el email no esté en uso por otro usuario (solo si se está actualizando)
+    if (updateData.email && updateData.email !== currentData?.email) {
+      const existingEmailQuery = await firestore
+        .collection("users")
+        .where("email", "==", updateData.email)
+        .get();
+
+      if (!existingEmailQuery.empty && existingEmailQuery.docs[0].id !== uid) {
+        return res.status(409).json({
+          error: "Ya existe un usuario registrado con este email",
+        });
+      }
+
+      // Actualizar email en Firebase Auth también
+      try {
+        await firebaseAuth.updateUser(uid, {
+          email: updateData.email,
+        });
+      } catch (error: any) {
+        if (error.code === 'auth/email-already-exists') {
+          return res.status(409).json({
+            error: "Ya existe un usuario registrado con este email",
+          });
+        }
+        throw error;
+      }
+    }
+
+    // Preparar datos para actualizar (solo campos permitidos)
+    const dataToUpdate: any = {};
+
+    // Solo agregar campos que realmente están siendo actualizados
+    if (updateData.nombre !== undefined && updateData.nombre !== null && updateData.nombre.trim() !== '') {
+      dataToUpdate.nombre = updateData.nombre.trim();
+    }
+    if (updateData.apellido !== undefined && updateData.apellido !== null && updateData.apellido.trim() !== '') {
+      dataToUpdate.apellido = updateData.apellido.trim();
+    }
+    if (updateData.dni !== undefined && updateData.dni !== null && updateData.dni.trim() !== '') {
+      dataToUpdate.dni = updateData.dni.trim();
+    }
+    if (updateData.email !== undefined && updateData.email !== null && updateData.email.trim() !== '') {
+      dataToUpdate.email = updateData.email.trim();
+    }
+
+    // Verificar que hay al menos un campo para actualizar
+    if (Object.keys(dataToUpdate).length === 0) {
+      return res.status(400).json({
+        error: 'Debe proporcionar al menos un campo para actualizar',
+      });
+    }
+
+    // Agregar fecha de actualización
+    dataToUpdate.fechaActualizacion = new Date();
+
+    // Actualizar displayName en Firebase Auth si cambió nombre o apellido
+    const finalNombre = updateData.nombre !== undefined ? updateData.nombre.trim() : (currentData?.nombre || '');
+    const finalApellido = updateData.apellido !== undefined ? updateData.apellido.trim() : (currentData?.apellido || '');
+    
+    if (updateData.nombre !== undefined || updateData.apellido !== undefined) {
+      try {
+        await firebaseAuth.updateUser(uid, {
+          displayName: `${finalNombre} ${finalApellido}`.trim(),
+        });
+      } catch (error: any) {
+        console.error('Error updating displayName in Firebase Auth:', error);
+        // No fallar si solo falla el displayName, continuar con la actualización
+      }
+    }
+
+    // Actualizar en Firestore
+    await userDoc.ref.update(dataToUpdate);
+
+    // Obtener el documento actualizado (forzar lectura fresca)
+    // Usar un pequeño delay para asegurar que Firestore haya propagado los cambios
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    const updatedDoc = await firestore.collection('users').doc(uid).get();
+    const updatedData = updatedDoc.data();
+
+    // Devolver solo los campos permitidos
+    const profileData = {
+      nombre: updatedData?.nombre || '',
+      apellido: updatedData?.apellido || '',
+      dni: updatedData?.dni || '',
+      email: updatedData?.email || '',
+    };
+
+    // Devolver respuesta con estructura clara para el frontend
+    return res.status(200).json({
+      success: true,
+      message: 'Perfil actualizado correctamente',
+      user: profileData,
+      data: profileData,
+    });
+  } catch (error) {
+    console.error('Error updating profile:', error);
     return res.status(500).json({ error: 'Error interno del servidor' });
   }
 };

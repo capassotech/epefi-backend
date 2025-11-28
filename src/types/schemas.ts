@@ -64,7 +64,15 @@ export const CourseSchema = z.object({
     .array(z.string())
     .max(20, "No puede tener más de 20 materias")
     .optional(),
-  fechaInicioDictado: z
+    planDeEstudiosUrl: z
+    .union([z.string().url("La URL del plan de estudios debe ser válida"), z.null(), z.literal("")])
+    .optional()
+    .transform((val) => (val === "" ? null : val)),
+  fechasDeExamenesUrl: z
+    .union([z.string().url("La URL de fechas de exámenes debe ser válida"), z.null(), z.literal("")])
+    .optional()
+    .transform((val) => (val === "" ? null : val)),
+    fechaInicioDictado: z
     .union([z.string(), z.date(), z.null()])
     .optional()
     .nullable()
@@ -101,7 +109,7 @@ export const CourseSchema = z.object({
     message: "La fecha de inicio de dictado debe ser anterior a la fecha de fin de dictado",
     path: ["fechaFinDictado"],
   }
-);
+});
 
 export const MateriaSchema = z.object({
   nombre: z
@@ -154,12 +162,21 @@ export const ModuleSchema = z.object({
 });
 
 export const UpdateUserSchema = UserSchema.partial();
+
+export const UpdateProfileSchema = z.object({
+  nombre: z.string().min(1, "El nombre del usuario es obligatorio").trim().optional(),
+  apellido: z.string().min(1, "El apellido del usuario es obligatorio").trim().optional(),
+  dni: z.string().min(1, "El DNI del usuario es obligatorio").trim().optional(),
+  email: z.string().email("El email del usuario debe ser válido").optional(),
+});
+
 export const UpdateModuleSchema = ModuleSchema.partial();
 export const UpdateCourseSchema = CourseSchema.partial();
 export const UpdateMateriaSchema = MateriaSchema.partial();
 
 export type ValidatedUser = z.infer<typeof UserSchema>;
 export type ValidatedUpdateUser = z.infer<typeof UpdateUserSchema>;
+export type ValidatedUpdateProfile = z.infer<typeof UpdateProfileSchema>;
 export type ValidatedUpdateModule = z.infer<typeof UpdateModuleSchema>;
 export type ValidatedModule = z.infer<typeof ModuleSchema>;
 export type ValidatedUpdateCourse = z.infer<typeof UpdateCourseSchema>;
