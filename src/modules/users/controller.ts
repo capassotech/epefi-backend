@@ -178,6 +178,16 @@ export const deleteUser = async (req: AuthenticatedRequest, res: Response) => {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
+    try {
+      await firebaseAuth.deleteUser(uid);
+    } catch (authError: any) {
+      if (authError.code !== 'auth/user-not-found') {
+        console.error('Error deleting user from Firebase Auth:', authError);
+        throw authError;
+      }
+    }
+
+    // Eliminar el documento de Firestore
     await userDoc.ref.delete();
 
     return res.status(200).json({
