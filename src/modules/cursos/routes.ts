@@ -6,7 +6,8 @@ import {
   createCourse,
   updateCourse,
   deleteCourse,
-  getCoursesByUserId
+  getCoursesByUserId,
+  toggleCourseStatus
 } from "./controller";
 import {
   authMiddleware,
@@ -60,6 +61,14 @@ const deleteCourseHandler = (
   return deleteCourse(req as AuthenticatedRequest, res);
 };
 
+const toggleCourseStatusHandler = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  return toggleCourseStatus(req as AuthenticatedRequest, res);
+};
+
 // Rutas protegidas
 router.post(
   "/",
@@ -78,6 +87,9 @@ router.put(
   }),
   updateCourseHandler
 );
+
+// Ruta para alternar estado (debe ir antes de /:id para evitar conflictos)
+router.patch("/:id/toggle-status", authMiddleware, toggleCourseStatusHandler);
 
 router.delete("/:id", authMiddleware, deleteCourseHandler);
 

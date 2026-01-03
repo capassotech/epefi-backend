@@ -6,6 +6,7 @@ import {
   createMateria,
   updateMateria,
   deleteMateria,
+  toggleMateriaStatus,
 } from "./controller";
 import {
   authMiddleware,
@@ -49,6 +50,14 @@ const deleteMateriaHandler = (
   return deleteMateria(req as AuthenticatedRequest, res);
 };
 
+const toggleMateriaStatusHandler = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  return toggleMateriaStatus(req as AuthenticatedRequest, res);
+};
+
 // Rutas públicas
 router.get("/", getAllMaterias);
 
@@ -71,6 +80,9 @@ router.put(
   validateBody(UpdateMateriaSchema),
   updateMateriaHandler
 );
+
+// Ruta para alternar estado (debe ir antes de /:id para evitar conflictos)
+router.patch("/:id/toggle-status", authMiddleware, toggleMateriaStatusHandler);
 
 router.delete(
   "/:id",

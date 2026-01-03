@@ -80,6 +80,7 @@ export const MateriaSchema = z.object({
     .min(1, "El nombre de la materia es obligatorio")
     .max(100, "El nombre de la materia no puede exceder 100 caracteres")
     .trim(),
+  activo: z.boolean().default(true),
   id_cursos: z
     .array(z.string())
     .max(20, "No puede tener más de 20 cursos")
@@ -149,6 +150,7 @@ export type ValidatedUpdateMateria = z.infer<typeof UpdateMateriaSchema>;
 export interface Materia {
   id: string;
   nombre: string;
+  activo: boolean;
   id_cursos: string[]; 
   modulos: string[]; 
 }
