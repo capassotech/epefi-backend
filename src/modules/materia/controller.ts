@@ -21,10 +21,15 @@ export const getAllMaterias = async (_: Request, res: Response) => {
       return res.json([]);
     }
 
-    const materias = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
+    const materias = snapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        ...data,
+        // Si no existe el campo activo, asumir que está activo (true) por defecto
+        activo: data.activo !== undefined ? data.activo : true,
+      };
+    });
 
     return res.json(materias);
   } catch (err) {
@@ -42,7 +47,13 @@ export const getMateriaById = async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Materia no encontrada" });
     }
 
-    return res.json({ id: doc.id, ...doc.data() });
+    const data = doc.data();
+    return res.json({
+      id: doc.id,
+      ...data,
+      // Si no existe el campo activo, asumir que está activo (true) por defecto
+      activo: data?.activo !== undefined ? data.activo : true,
+    });
   } catch (err) {
     console.error("getMateriaById error:", err);
     return res.status(500).json({ error: "Error al obtener materia" });
@@ -98,9 +109,10 @@ export const createMateria = async (
     }
 
 
-    // Agregar fechas de auditoría
+    // Agregar fechas de auditoría y asegurar que activo tenga un valor por defecto
     const materiaWithDates = {
       ...materiaData,
+      activo: materiaData.activo !== undefined ? materiaData.activo : true,
       fechaCreacion: new Date(),
       fechaActualizacion: new Date(),
     };
@@ -227,6 +239,54 @@ export const updateMateria = async (
   } catch (err) {
     console.error("updateMateria error:", err);
     return res.status(500).json({ error: "Error al actualizar materia" });
+  }
+};
+
+export const toggleMateriaStatus = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  const isAuthorized = await validateUser(req);
+  if (!isAuthorized) {
+    return res.status(403).json({
+      error: "No autorizado. Se requieren permisos de administrador.",
+    });
+  }
+
+  try {
+    const { id } = req.params;
+
+    const materiaExists = await materiasCollection.doc(id).get();
+    if (!materiaExists.exists) {
+      return res.status(404).json({ error: "Materia no encontrada" });
+    }
+
+    const currentData = materiaExists.data();
+    // Si no existe el campo activo, asumir que está activo (true) por defecto
+    const currentActivo = currentData?.activo !== undefined ? currentData.activo : true;
+    const newActivo = !currentActivo;
+
+    await materiasCollection.doc(id).update({
+      activo: newActivo,
+      fechaActualizacion: new Date(),
+    });
+
+    // Obtener el documento actualizado
+    const updatedDoc = await materiasCollection.doc(id).get();
+    const updatedData = updatedDoc.data();
+
+    return res.json({
+      message: `Materia ${newActivo ? "habilitada" : "deshabilitada"} exitosamente`,
+      id: id,
+      materia: {
+        id: updatedDoc.id,
+        ...updatedData,
+        activo: newActivo,
+      },
+    });
+  } catch (err) {
+    console.error("toggleMateriaStatus error:", err);
+    return res.status(500).json({ error: "Error al cambiar estado de la materia" });
   }
 };
 

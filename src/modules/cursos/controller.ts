@@ -73,12 +73,16 @@ export const getCoursesByUserId = async (req: Request, res: Response) => {
 export const getCourseById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    console.log(`[getCourseById] Buscando curso con ID: ${id}`);
+    
     const doc = await cursosCollection.doc(id).get();
 
     if (!doc.exists) {
+      console.log(`[getCourseById] Curso con ID ${id} no encontrado`);
       return res.status(404).json({ error: "Curso no encontrado" });
     }
 
+    console.log(`[getCourseById] Curso encontrado: ${id}`);
     return res.json(formatFirestoreDoc(doc));
   } catch (err) {
     console.error("getCourseById error:", err);
@@ -234,6 +238,49 @@ export const updateCourse = async (
   } catch (err) {
     console.error("updateCourse error:", err);
     return res.status(500).json({ error: "Error al actualizar curso" });
+  }
+};
+
+export const toggleCourseStatus = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  const isAuthorized = await validateUser(req);
+  if (!isAuthorized) {
+    return res.status(403).json({
+      error: "No autorizado. Se requieren permisos de administrador.",
+    });
+  }
+
+  try {
+    const { id } = req.params;
+
+    const courseExists = await cursosCollection.doc(id).get();
+    if (!courseExists.exists) {
+      return res.status(404).json({ error: "Curso no encontrado" });
+    }
+
+    const currentData = courseExists.data();
+    const currentEstado = currentData?.estado || "activo";
+    const newEstado = currentEstado === "activo" ? "inactivo" : "activo";
+
+    await cursosCollection.doc(id).update({
+      estado: newEstado,
+      fechaActualizacion: new Date(),
+    });
+
+    // Obtener el documento actualizado
+    const updatedDoc = await cursosCollection.doc(id).get();
+    const formattedDoc = formatFirestoreDoc(updatedDoc);
+
+    return res.json({
+      message: `Curso ${newEstado === "activo" ? "habilitado" : "deshabilitado"} exitosamente`,
+      id: id,
+      curso: formattedDoc,
+    });
+  } catch (err) {
+    console.error("toggleCourseStatus error:", err);
+    return res.status(500).json({ error: "Error al cambiar estado del curso" });
   }
 };
 
