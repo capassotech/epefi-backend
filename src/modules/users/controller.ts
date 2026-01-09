@@ -4,6 +4,43 @@ import { ValidatedUpdateUser, ValidatedUser, ValidatedUpdateProfile } from '../.
 import { validateUser } from '../../utils/utils';
 import { AuthenticatedRequest } from '../../middleware/authMiddleware';
 
+// Función auxiliar para inicializar módulos habilitados de un curso
+// Solo habilita el primer módulo de cada materia, deshabilita los demás
+const initializeCourseModules = async (courseId: string): Promise<Record<string, boolean>> => {
+  const modulosHabilitados: Record<string, boolean> = {};
+  
+  const courseDoc = await firestore.collection('cursos').doc(courseId).get();
+  if (!courseDoc.exists) {
+    return modulosHabilitados;
+  }
+
+  const courseData = courseDoc.data();
+  const materiasIds = courseData?.materias || [];
+
+  // Obtener todas las materias del curso
+  const materiasCollection = firestore.collection('materias');
+  for (const materiaId of materiasIds) {
+    const materiaDoc = await materiasCollection.doc(materiaId).get();
+    if (materiaDoc.exists) {
+      const materiaData = materiaDoc.data();
+      const modulosIds = materiaData?.modulos || [];
+      
+      // Habilitar solo el primer módulo, deshabilitar los demás
+      modulosIds.forEach((moduloId: string, index: number) => {
+        if (index === 0) {
+          // Primer módulo: habilitado
+          modulosHabilitados[moduloId] = true;
+        } else {
+          // Resto de módulos: deshabilitados
+          modulosHabilitados[moduloId] = false;
+        }
+      });
+    }
+  }
+
+  return modulosHabilitados;
+};
+
 export const getUserProfile = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const uid = req.user.uid;
@@ -114,7 +151,26 @@ export const createUser = async (req: AuthenticatedRequest, res: Response) => {
       displayName: `${nombre} ${apellido}`,
     });
     
-    const userDoc = await firestore.collection("users").doc(userRecord.uid).set({ email, nombre, apellido, dni, role, activo, cursos_asignados, emailVerificado });
+    // Inicializar módulos habilitados para los cursos asignados
+    let modulosHabilitados: Record<string, boolean> = {};
+    if (cursos_asignados && cursos_asignados.length > 0) {
+      for (const cursoId of cursos_asignados) {
+        const courseModules = await initializeCourseModules(cursoId);
+        modulosHabilitados = { ...modulosHabilitados, ...courseModules };
+      }
+    }
+    
+    const userDoc = await firestore.collection("users").doc(userRecord.uid).set({ 
+      email, 
+      nombre, 
+      apellido, 
+      dni, 
+      role, 
+      activo, 
+      cursos_asignados, 
+      emailVerificado,
+      modulos_habilitados: modulosHabilitados
+    });
     return res.status(200).json({ message: "Usuario creado correctamente", user: userDoc });
   } catch (error) {
     console.error("Error creating user:", error);
@@ -147,6 +203,23 @@ export const updateUser = async (req: AuthenticatedRequest, res: Response) => {
           return res.status(404).json({ error: 'Curso no encontrado' });
         }
       }
+    }
+
+    // Si se están actualizando los cursos asignados, inicializar módulos habilitados para los nuevos cursos
+    const currentUserData = userDoc.data();
+    const currentCursos = currentUserData?.cursos_asignados || [];
+    const newCursos = updateData.cursos_asignados || [];
+    
+    // Encontrar cursos nuevos (que no estaban antes)
+    const cursosNuevos = newCursos.filter((cursoId: string) => !currentCursos.includes(cursoId));
+    
+    let modulosHabilitados = currentUserData?.modulos_habilitados || {};
+    if (cursosNuevos.length > 0) {
+      for (const cursoId of cursosNuevos) {
+        const courseModules = await initializeCourseModules(cursoId);
+        modulosHabilitados = { ...modulosHabilitados, ...courseModules };
+      }
+      updateData.modulos_habilitados = modulosHabilitados;
     }
 
     await userDoc.ref.update(updateData);
@@ -352,7 +425,20 @@ export const asignCourseToUser = async (req: AuthenticatedRequest, res: Response
     return res.status(404).json({ error: 'Curso no encontrado' });
   }
 
+  // Actualizar cursos asignados
   await userDoc.ref.update({ cursos_asignados: [...userDoc.data()?.cursos_asignados || [], id_curso] });
+
+  // Inicializar módulos habilitados: solo el primer módulo de cada materia habilitado
+  const userData = userDoc.data();
+  const modulosHabilitados = userData?.modulos_habilitados || {};
+  
+  // Usar la función auxiliar para inicializar módulos del nuevo curso
+  const courseModules = await initializeCourseModules(id_curso);
+  const updatedModulosHabilitados = { ...modulosHabilitados, ...courseModules };
+
+  // Actualizar módulos habilitados en el usuario
+  await userDoc.ref.update({ modulos_habilitados: updatedModulosHabilitados });
+
   return res.status(200).json({ message: 'Curso asignado al usuario' });
 };
 
