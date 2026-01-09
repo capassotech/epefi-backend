@@ -27,16 +27,34 @@ router.get('/',
   (req: Request, res: Response) => getUsers(req as AuthenticatedRequest, res)
 );
 
-// Ruta con parámetro debe ir DESPUÉS de las rutas específicas
-router.get('/:id', 
-  authMiddleware, 
-  (req: Request, res: Response) => getUser(req as AuthenticatedRequest, res)
-);
-
 router.post('/', 
   authMiddleware, 
   validateBody(UserSchema), 
   (req: Request, res: Response) => createUser(req as AuthenticatedRequest, res)
+);
+
+// IMPORTANTE: Las rutas específicas con más segmentos deben ir ANTES de /:id
+// Rutas para gestión de módulos por estudiante (deben ir antes de /:id)
+router.get('/:id/modulos', 
+  authMiddleware, 
+  (req: Request, res: Response) => getStudentModules(req as AuthenticatedRequest, res)
+);
+
+router.patch('/:id/modulos/:moduleId', 
+  authMiddleware,
+  validateBody(z.object({ enabled: z.boolean() })),
+  (req: Request, res: Response) => updateStudentModule(req as AuthenticatedRequest, res)
+);
+
+router.post('/:id/asignar-curso', 
+  authMiddleware, 
+  (req: Request, res: Response) => asignCourseToUser(req as AuthenticatedRequest, res)
+);
+
+// Ruta con parámetro debe ir DESPUÉS de las rutas específicas
+router.get('/:id', 
+  authMiddleware, 
+  (req: Request, res: Response) => getUser(req as AuthenticatedRequest, res)
 );
 
 router.delete('/:id', 
@@ -48,23 +66,6 @@ router.put('/:id',
   authMiddleware, 
   validateBody(UpdateUserSchema), 
   (req: Request, res: Response) => updateUser(req as AuthenticatedRequest, res)
-);
-
-router.post('/:id/asignar-curso', 
-  authMiddleware, 
-  (req: Request, res: Response) => asignCourseToUser(req as AuthenticatedRequest, res)
-);
-
-// Rutas para gestión de módulos por estudiante
-router.get('/:id/modulos', 
-  authMiddleware, 
-  (req: Request, res: Response) => getStudentModules(req as AuthenticatedRequest, res)
-);
-
-router.patch('/:id/modulos/:moduleId', 
-  authMiddleware,
-  validateBody(z.object({ enabled: z.boolean() })),
-  (req: Request, res: Response) => updateStudentModule(req as AuthenticatedRequest, res)
 );
 
 export default router;
