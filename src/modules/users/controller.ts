@@ -17,10 +17,14 @@ export const getUserProfile = async (req: AuthenticatedRequest, res: Response) =
     
     // Devolver solo los campos permitidos para la vista del perfil
     const profileData = {
+      uid: uid,
       nombre: userData?.nombre || '',
       apellido: userData?.apellido || '',
       dni: userData?.dni || '',
       email: userData?.email || '',
+      role: userData?.role || { admin: false, student: true },
+      activo: userData?.activo !== undefined ? userData.activo : true,
+      fechaRegistro: userData?.fechaRegistro || userData?.fechaCreacion || null,
     };
 
     return res.json(profileData);
