@@ -72,6 +72,30 @@ export const CourseSchema = z.object({
     .union([z.string().url("La URL de fechas de exámenes debe ser válida"), z.null(), z.literal("")])
     .optional()
     .transform((val) => (val === "" ? null : val)),
+  fechaInicioDictado: z
+    .string()
+    .min(1, "La fecha de inicio del dictado es obligatoria")
+    .refine(
+      (val) => {
+        // Validar que sea un string ISO válido o un formato de fecha válido
+        const date = new Date(val);
+        return !isNaN(date.getTime());
+      },
+      { message: "Formato de fecha inválido" }
+    )
+    .optional(),
+  fechaFinDictado: z
+    .string()
+    .min(1, "La fecha de fin del dictado es obligatoria")
+    .refine(
+      (val) => {
+        // Validar que sea un string ISO válido o un formato de fecha válido
+        const date = new Date(val);
+        return !isNaN(date.getTime());
+      },
+      { message: "Formato de fecha inválido" }
+    )
+    .optional(),
 });
 
 export const MateriaSchema = z.object({

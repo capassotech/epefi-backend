@@ -187,19 +187,15 @@ export const formatFirestoreDoc = (doc: any): any => {
 
   for (const [key, value] of Object.entries(data)) {
     // Manejar fechas (fechaInicioDictado, fechaFinDictado, etc.)
-    if (key.includes("fecha") || key.includes("Fecha") || key.includes("date") || key.includes("Date")) {
+    const isDateField = key.toLowerCase().includes('fecha') || key.toLowerCase().includes('date');
+    
+    if (isDateField) {
       if (value === null || value === undefined) {
         formatted[key] = value;
         continue;
       }
       
-      // Si ya es un string ISO, mantenerlo
-      if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) {
-        formatted[key] = value;
-        continue;
-      }
-      
-      // Si es un Timestamp de Firestore con toDate
+      // Si es un Timestamp de Firestore con toDate (verificar primero antes de strings)
       if (
         value &&
         typeof value === "object" &&
@@ -208,8 +204,11 @@ export const formatFirestoreDoc = (doc: any): any => {
       ) {
         try {
           const timestamp = value as { toDate: () => Date };
-          formatted[key] = timestamp.toDate().toISOString();
-          continue;
+          const dateObj = timestamp.toDate();
+          if (!isNaN(dateObj.getTime())) {
+            formatted[key] = dateObj.toISOString();
+            continue;
+          }
         } catch (e) {
           console.warn(`Error converting timestamp for ${key}:`, e);
         }
@@ -219,12 +218,14 @@ export const formatFirestoreDoc = (doc: any): any => {
       if (
         value &&
         typeof value === "object" &&
-        ("seconds" in value || "_seconds" in value)
+        ("seconds" in value || "_seconds" in value) &&
+        typeof ((value as any).seconds || (value as any)._seconds) === "number"
       ) {
         try {
           const seconds = (value as any).seconds || (value as any)._seconds;
-          if (typeof seconds === "number") {
-            formatted[key] = new Date(seconds * 1000).toISOString();
+          const dateObj = new Date(seconds * 1000);
+          if (!isNaN(dateObj.getTime())) {
+            formatted[key] = dateObj.toISOString();
             continue;
           }
         } catch (e) {
@@ -235,14 +236,30 @@ export const formatFirestoreDoc = (doc: any): any => {
       // Si es un objeto Date
       if (value instanceof Date) {
         try {
-          formatted[key] = value.toISOString();
-          continue;
+          if (!isNaN(value.getTime())) {
+            formatted[key] = value.toISOString();
+            continue;
+          }
         } catch (e) {
           console.warn(`Error converting Date for ${key}:`, e);
         }
       }
       
-      // Intentar convertir a Date si es posible
+      // Si ya es un string ISO válido, mantenerlo o normalizarlo
+      if (typeof value === "string") {
+        // Verificar si es un string ISO válido
+        const dateFromString = new Date(value);
+        if (!isNaN(dateFromString.getTime())) {
+          // Normalizar a ISO string completo
+          formatted[key] = dateFromString.toISOString();
+          continue;
+        }
+        // Si no es un string de fecha válido, mantener el valor original
+        formatted[key] = value;
+        continue;
+      }
+      
+      // Intentar convertir cualquier otro valor a Date
       try {
         const dateValue = new Date(value as any);
         if (!isNaN(dateValue.getTime())) {
@@ -252,6 +269,10 @@ export const formatFirestoreDoc = (doc: any): any => {
       } catch (e) {
         // Si no se puede convertir, mantener el valor original
       }
+      
+      // Si llegamos aquí, mantener el valor original
+      formatted[key] = value;
+      continue;
     }
     
     // Para otros campos, mantener la lógica original

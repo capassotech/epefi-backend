@@ -125,12 +125,28 @@ export const createCourse = async (
     //   }
     // }
 
+    // Convertir fechas de string ISO a objetos Date para Firestore
+    const fechaInicioDictado = courseData.fechaInicioDictado 
+      ? new Date(courseData.fechaInicioDictado) 
+      : null;
+    const fechaFinDictado = courseData.fechaFinDictado 
+      ? new Date(courseData.fechaFinDictado) 
+      : null;
+
     // Agregar fechas de auditoría
     const courseWithDates: any = {
       ...courseData,
       fechaCreacion: new Date(),
       fechaActualizacion: new Date(),
     };
+
+    // Asignar fechas convertidas a objetos Date
+    if (fechaInicioDictado && !isNaN(fechaInicioDictado.getTime())) {
+      courseWithDates.fechaInicioDictado = fechaInicioDictado;
+    }
+    if (fechaFinDictado && !isNaN(fechaFinDictado.getTime())) {
+      courseWithDates.fechaFinDictado = fechaFinDictado;
+    }
 
     // Agregar fechas de actualización de PDFs si se proporcionan las URLs
     if (courseData.planDeEstudiosUrl) {
@@ -205,6 +221,20 @@ export const updateCourse = async (
       ...updateData,
       fechaActualizacion: new Date(),
     };
+
+    // Convertir fechas de string ISO a objetos Date para Firestore (si están presentes)
+    if (updateData.fechaInicioDictado) {
+      const fechaInicio = new Date(updateData.fechaInicioDictado);
+      if (!isNaN(fechaInicio.getTime())) {
+        dataToUpdate.fechaInicioDictado = fechaInicio;
+      }
+    }
+    if (updateData.fechaFinDictado) {
+      const fechaFin = new Date(updateData.fechaFinDictado);
+      if (!isNaN(fechaFin.getTime())) {
+        dataToUpdate.fechaFinDictado = fechaFin;
+      }
+    }
 
     // Actualizar fechas de actualización de PDFs si se están actualizando las URLs
     const currentData = courseExists.data();
