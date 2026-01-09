@@ -32,8 +32,15 @@ router.use((req, res, next) => {
 // Rutas públicas
 // IMPORTANTE: Las rutas específicas deben ir ANTES de las rutas con parámetros genéricos
 router.get("/", getAllCourses);
-router.get("/user/:id", getCoursesByUserId);
-router.get("/:id", getCourseById);
+
+// Rutas protegidas - requieren autenticación
+router.get("/user/:id", authMiddleware, (req: Request, res: Response) => {
+  return getCoursesByUserId(req as AuthenticatedRequest, res);
+});
+
+router.get("/:id", authMiddleware, (req: Request, res: Response) => {
+  return getCourseById(req as AuthenticatedRequest, res);
+});
 
 // Wrapper para manejar AuthenticatedRequest correctamente
 const createCourseHandler = (

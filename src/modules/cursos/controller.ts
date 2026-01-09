@@ -28,11 +28,19 @@ export const getAllCourses = async (_: Request, res: Response) => {
   }
 };
 
-export const getCoursesByUserId = async (req: Request, res: Response) => {
+export const getCoursesByUserId = async (req: AuthenticatedRequest, res: Response) => {
   try {
     console.log("getCoursesByUserId llamado con ID:", req.params.id);
     const { id } = req.params;
+    const authenticatedUserId = req.user?.uid;
+    
     console.log("Buscando usuario con ID:", id);
+    
+    // Verificar que el usuario autenticado sea el mismo que solicita sus cursos, o sea admin
+    if (!authenticatedUserId) {
+      return res.status(401).json({ error: "No autenticado" });
+    }
+
     // validate that the user exists
     const userDoc = await firestore.collection('users').doc(id).get();
     if (!userDoc.exists) {
@@ -42,8 +50,22 @@ export const getCoursesByUserId = async (req: Request, res: Response) => {
       return res.json([]);
     }
 
+    const userData = userDoc.data();
+    
+    // Verificar que el usuario esté activo
+    if (userData?.activo === false) {
+      console.log("Usuario deshabilitado, retornando array vacío");
+      return res.json([]);
+    }
+
+    // Verificar que el usuario autenticado sea el mismo que solicita sus cursos, o sea admin
+    const isAdmin = await validateUser(req);
+    if (!isAdmin && authenticatedUserId !== id) {
+      return res.status(403).json({ error: "No autorizado para acceder a estos cursos" });
+    }
+
     // Search into cursos_asignados field and take all courses ids
-    const cursos_asignados = userDoc.data()?.cursos_asignados;
+    const cursos_asignados = userData?.cursos_asignados;
     
     // Si no hay cursos asignados o el array está vacío, retornar array vacío
     if (!cursos_asignados || !Array.isArray(cursos_asignados) || cursos_asignados.length === 0) {
@@ -70,16 +92,42 @@ export const getCoursesByUserId = async (req: Request, res: Response) => {
   }
 };
 
-export const getCourseById = async (req: Request, res: Response) => {
+export const getCourseById = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params;
+    const authenticatedUserId = req.user?.uid;
+    
     console.log(`[getCourseById] Buscando curso con ID: ${id}`);
+    
+    // Verificar que el usuario esté autenticado
+    if (!authenticatedUserId) {
+      return res.status(401).json({ error: "No autenticado" });
+    }
+
+    // Verificar que el usuario esté activo
+    const userDoc = await firestore.collection('users').doc(authenticatedUserId).get();
+    if (userDoc.exists) {
+      const userData = userDoc.data();
+      if (userData?.activo === false) {
+        return res.status(403).json({ error: "Usuario deshabilitado" });
+      }
+    }
     
     const doc = await cursosCollection.doc(id).get();
 
     if (!doc.exists) {
       console.log(`[getCourseById] Curso con ID ${id} no encontrado`);
       return res.status(404).json({ error: "Curso no encontrado" });
+    }
+
+    // Verificar que el usuario tenga acceso al curso (esté asignado o sea admin)
+    const isAdmin = await validateUser(req);
+    if (!isAdmin) {
+      const userData = userDoc.data();
+      const cursos_asignados = userData?.cursos_asignados || [];
+      if (!cursos_asignados.includes(id)) {
+        return res.status(403).json({ error: "No tienes acceso a este curso" });
+      }
     }
 
     console.log(`[getCourseById] Curso encontrado: ${id}`);
