@@ -34,19 +34,12 @@ router.post('/',
 );
 
 // IMPORTANTE: Las rutas específicas con más segmentos deben ir ANTES de /:id
-// Rutas para gestión de módulos por estudiante (deben ir antes de /:id)
-router.get('/:id/modulos', 
-  authMiddleware, 
-  (req: Request, res: Response) => getStudentModules(req as AuthenticatedRequest, res)
-);
-
-router.patch('/:id/modulos/:moduleId', 
+// Rutas para progreso del estudiante (deben ir PRIMERO para evitar conflictos)
+router.get('/:id/progreso', 
   authMiddleware,
-  validateBody(z.object({ enabled: z.boolean() })),
-  (req: Request, res: Response) => updateStudentModule(req as AuthenticatedRequest, res)
+  (req: Request, res: Response) => getStudentProgress(req as AuthenticatedRequest, res)
 );
 
-// Rutas para progreso del estudiante
 router.post('/:id/progreso', 
   authMiddleware,
   validateBody(z.object({ 
@@ -58,9 +51,16 @@ router.post('/:id/progreso',
   (req: Request, res: Response) => markContentAsCompleted(req as AuthenticatedRequest, res)
 );
 
-router.get('/:id/progreso', 
+// Rutas para gestión de módulos por estudiante (deben ir antes de /:id)
+router.get('/:id/modulos', 
+  authMiddleware, 
+  (req: Request, res: Response) => getStudentModules(req as AuthenticatedRequest, res)
+);
+
+router.patch('/:id/modulos/:moduleId', 
   authMiddleware,
-  (req: Request, res: Response) => getStudentProgress(req as AuthenticatedRequest, res)
+  validateBody(z.object({ enabled: z.boolean() })),
+  (req: Request, res: Response) => updateStudentModule(req as AuthenticatedRequest, res)
 );
 
 router.post('/:id/asignar-curso', 
