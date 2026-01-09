@@ -186,6 +186,75 @@ export const formatFirestoreDoc = (doc: any): any => {
   const formatted: Record<string, any> = { id: doc.id };
 
   for (const [key, value] of Object.entries(data)) {
+    // Manejar fechas (fechaInicioDictado, fechaFinDictado, etc.)
+    if (key.includes("fecha") || key.includes("Fecha") || key.includes("date") || key.includes("Date")) {
+      if (value === null || value === undefined) {
+        formatted[key] = value;
+        continue;
+      }
+      
+      // Si ya es un string ISO, mantenerlo
+      if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) {
+        formatted[key] = value;
+        continue;
+      }
+      
+      // Si es un Timestamp de Firestore con toDate
+      if (
+        value &&
+        typeof value === "object" &&
+        "toDate" in value &&
+        typeof (value as any).toDate === "function"
+      ) {
+        try {
+          const timestamp = value as { toDate: () => Date };
+          formatted[key] = timestamp.toDate().toISOString();
+          continue;
+        } catch (e) {
+          console.warn(`Error converting timestamp for ${key}:`, e);
+        }
+      }
+      
+      // Si es un Timestamp serializado (con seconds o _seconds)
+      if (
+        value &&
+        typeof value === "object" &&
+        ("seconds" in value || "_seconds" in value)
+      ) {
+        try {
+          const seconds = (value as any).seconds || (value as any)._seconds;
+          if (typeof seconds === "number") {
+            formatted[key] = new Date(seconds * 1000).toISOString();
+            continue;
+          }
+        } catch (e) {
+          console.warn(`Error converting seconds timestamp for ${key}:`, e);
+        }
+      }
+      
+      // Si es un objeto Date
+      if (value instanceof Date) {
+        try {
+          formatted[key] = value.toISOString();
+          continue;
+        } catch (e) {
+          console.warn(`Error converting Date for ${key}:`, e);
+        }
+      }
+      
+      // Intentar convertir a Date si es posible
+      try {
+        const dateValue = new Date(value as any);
+        if (!isNaN(dateValue.getTime())) {
+          formatted[key] = dateValue.toISOString();
+          continue;
+        }
+      } catch (e) {
+        // Si no se puede convertir, mantener el valor original
+      }
+    }
+    
+    // Para otros campos, mantener la lógica original
     if (
       value &&
       typeof value === "object" &&
@@ -195,6 +264,22 @@ export const formatFirestoreDoc = (doc: any): any => {
       // Es un Timestamp de Firestore
       const timestamp = value as { toDate: () => Date };
       formatted[key] = timestamp.toDate().toISOString();
+    } else if (
+      value &&
+      typeof value === "object" &&
+      value !== null &&
+      ("seconds" in value || "_seconds" in value)
+    ) {
+      // Es un Timestamp serializado de Firestore (con seconds o _seconds)
+      const seconds = (value as any).seconds || (value as any)._seconds;
+      if (typeof seconds === "number") {
+        formatted[key] = new Date(seconds * 1000).toISOString();
+      } else {
+        formatted[key] = value;
+      }
+    } else if (value instanceof Date) {
+      // Es un objeto Date directo
+      formatted[key] = value.toISOString();
     } else {
       formatted[key] = value;
     }
