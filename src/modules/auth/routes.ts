@@ -13,6 +13,7 @@ import {
   changePassword,
   refreshToken,
   getIdToken,
+  createGoogleUser,
 } from "./controller";
 import {
   validateRequest,
@@ -95,6 +96,15 @@ router.post("/verify-token", verifyToken);
 router.post("/get-id-token", getIdToken);
 
 // ========== RUTAS PROTEGIDAS ==========
+
+/**
+ * @route   POST /api/auth/google/create-user
+ * @desc    Crear usuario en Firestore después de autenticarse con Google
+ * @access  Private (requiere autenticación)
+ */
+router.post("/google/create-user", authMiddleware, (req: Request, res: Response) => {
+  return createGoogleUser(req as AuthenticatedRequest, res);
+});
 
 /**
  * @route   POST /api/auth/logout

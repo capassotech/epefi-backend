@@ -171,6 +171,80 @@ export const login = async (req: Request, res: Response) => {
   }
 };
 
+export const createGoogleUser = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { uid } = req.user;
+    const firebaseUser = await firebaseAuth.getUser(uid);
+
+    // Verificar si el usuario ya existe en Firestore
+    const userDoc = await usersCollection.doc(uid).get();
+
+    if (userDoc.exists) {
+      // Si ya existe, devolver los datos existentes
+      const userData = userDoc.data();
+      return res.status(200).json({
+        message: "Usuario ya existe",
+        user: {
+          uid: uid,
+          email: firebaseUser.email,
+          nombre: userData?.nombre || "",
+          apellido: userData?.apellido || "",
+          dni: userData?.dni || "",
+          role: userData?.role || { admin: false, student: true },
+          emailVerificado: firebaseUser.emailVerified,
+          fechaRegistro: userData?.fechaRegistro || userData?.fechaCreacion || new Date(),
+        },
+      });
+    }
+
+    // Extraer nombre y apellido del displayName
+    const displayName = firebaseUser.displayName || "";
+    const nameParts = displayName.split(" ");
+    const nombre = nameParts[0] || "";
+    const apellido = nameParts.slice(1).join(" ") || "";
+
+    // Crear perfil de usuario en Firestore
+    const userData = {
+      email: firebaseUser.email || "",
+      nombre: nombre,
+      apellido: apellido,
+      dni: "", // DNI vacío para usuarios de Google, se puede actualizar después
+      role: {
+        admin: false,
+        student: true,
+      },
+      fechaRegistro: new Date(),
+      fechaActualizacion: new Date(),
+      activo: true,
+      emailVerificado: firebaseUser.emailVerified,
+      cursos_asignados: [],
+    };
+
+    await usersCollection.doc(uid).set(userData);
+
+    return res.status(201).json({
+      message: "Usuario creado exitosamente",
+      user: {
+        uid: uid,
+        email: userData.email,
+        nombre: userData.nombre,
+        apellido: userData.apellido,
+        dni: userData.dni,
+        role: userData.role,
+        emailVerificado: userData.emailVerificado,
+        fechaRegistro: userData.fechaRegistro,
+      },
+    });
+  } catch (error: any) {
+    console.error("Error creating Google user:", error);
+    return res.status(500).json({
+      error: "Error al crear usuario",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+};
+
 export const logout = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { uid } = req.user;
