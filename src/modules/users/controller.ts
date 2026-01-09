@@ -356,5 +356,77 @@ export const asignCourseToUser = async (req: AuthenticatedRequest, res: Response
   return res.status(200).json({ message: 'Curso asignado al usuario' });
 };
 
+// Obtener el estado de habilitación de módulos para un estudiante
+export const getStudentModules = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const isAuthorized = await validateUser(req);
+    if (!isAuthorized) {
+      return res.status(403).json({
+        error: "No autorizado. Se requieren permisos de administrador.",
+      });
+    }
+
+    const { id } = req.params;
+    const userDoc = await firestore.collection('users').doc(id).get();
+
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    const userData = userDoc.data();
+    const modulosHabilitados = userData?.modulos_habilitados || {};
+
+    return res.status(200).json({ modulos_habilitados: modulosHabilitados });
+  } catch (error) {
+    console.error('Error fetching student modules:', error);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+};
+
+// Actualizar el estado de habilitación de un módulo para un estudiante
+export const updateStudentModule = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const isAuthorized = await validateUser(req);
+    if (!isAuthorized) {
+      return res.status(403).json({
+        error: "No autorizado. Se requieren permisos de administrador.",
+      });
+    }
+
+    const { id, moduleId } = req.params;
+    const { enabled } = req.body;
+
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: 'El campo "enabled" debe ser un booleano' });
+    }
+
+    const userDoc = await firestore.collection('users').doc(id).get();
+
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    const userData = userDoc.data();
+    const modulosHabilitados = userData?.modulos_habilitados || {};
+
+    // Actualizar el estado del módulo específico
+    modulosHabilitados[moduleId] = enabled;
+
+    // Actualizar en Firestore
+    await userDoc.ref.update({
+      modulos_habilitados: modulosHabilitados,
+      fechaActualizacion: new Date(),
+    });
+
+    return res.status(200).json({
+      message: `Módulo ${enabled ? 'habilitado' : 'deshabilitado'} exitosamente`,
+      modulos_habilitados: modulosHabilitados,
+    });
+  } catch (error) {
+    console.error('Error updating student module:', error);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+};
+
 
 

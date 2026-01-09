@@ -1,6 +1,7 @@
 import { NextFunction, Router, Request, Response } from 'express';
+import { z } from 'zod';
 import { AuthenticatedRequest, authMiddleware } from '../../middleware/authMiddleware';
-import { getUser, getUsers, getUserProfile, deleteUser, updateUser, updateProfile, asignCourseToUser, createUser } from './controller';
+import { getUser, getUsers, getUserProfile, deleteUser, updateUser, updateProfile, asignCourseToUser, createUser, getStudentModules, updateStudentModule } from './controller';
 import { UpdateUserSchema, UserSchema, UpdateProfileSchema } from '../../types/schemas';
 import { validateBody, basicSanitization } from '../../middleware/zodValidation';
 
@@ -52,6 +53,18 @@ router.put('/:id',
 router.post('/:id/asignar-curso', 
   authMiddleware, 
   (req: Request, res: Response) => asignCourseToUser(req as AuthenticatedRequest, res)
+);
+
+// Rutas para gestión de módulos por estudiante
+router.get('/:id/modulos', 
+  authMiddleware, 
+  (req: Request, res: Response) => getStudentModules(req as AuthenticatedRequest, res)
+);
+
+router.patch('/:id/modulos/:moduleId', 
+  authMiddleware,
+  validateBody(z.object({ enabled: z.boolean() })),
+  (req: Request, res: Response) => updateStudentModule(req as AuthenticatedRequest, res)
 );
 
 export default router;
