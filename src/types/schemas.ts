@@ -162,6 +162,8 @@ export const UpdateUserSchema = z.object({
   activo: z.boolean().optional(),
   cursos_asignados: z.array(z.string()).optional(),
   emailVerificado: z.boolean().optional(),
+  modulos_habilitados: z.record(z.string(), z.boolean()).optional(), // Record<string, boolean>
+  progreso: z.record(z.string(), z.record(z.string(), z.boolean())).optional(), // Record<string, Record<string, boolean>>
 });
 
 export const UpdateProfileSchema = z.object({
