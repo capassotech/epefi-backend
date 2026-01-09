@@ -359,22 +359,29 @@ export const asignCourseToUser = async (req: AuthenticatedRequest, res: Response
 // Obtener el estado de habilitación de módulos para un estudiante
 export const getStudentModules = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const isAuthorized = await validateUser(req);
-    if (!isAuthorized) {
+    const { id } = req.params;
+    const requestingUserId = req.user.uid;
+
+    // Verificar que el usuario solicitante sea el mismo que el usuario consultado, o sea admin
+    const requestingUserDoc = await firestore.collection('users').doc(requestingUserId).get();
+    const requestingUserData = requestingUserDoc.data();
+    const isAdmin = requestingUserData?.role?.admin === true;
+
+    // Si no es admin y no es el mismo usuario, denegar acceso
+    if (!isAdmin && requestingUserId !== id) {
       return res.status(403).json({
-        error: "No autorizado. Se requieren permisos de administrador.",
+        error: "No autorizado. Solo puedes ver tus propios módulos habilitados.",
       });
     }
 
-    const { id } = req.params;
-    const userDoc = await firestore.collection('users').doc(id).get();
+    const targetUserDoc = await firestore.collection('users').doc(id).get();
 
-    if (!userDoc.exists) {
+    if (!targetUserDoc.exists) {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-    const userData = userDoc.data();
-    const modulosHabilitados = userData?.modulos_habilitados || {};
+    const targetUserData = targetUserDoc.data();
+    const modulosHabilitados = targetUserData?.modulos_habilitados || {};
 
     return res.status(200).json({ modulos_habilitados: modulosHabilitados });
   } catch (error) {
