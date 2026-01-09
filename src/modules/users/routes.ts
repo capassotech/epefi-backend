@@ -1,7 +1,7 @@
 import { NextFunction, Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { AuthenticatedRequest, authMiddleware } from '../../middleware/authMiddleware';
-import { getUser, getUsers, getUserProfile, deleteUser, updateUser, updateProfile, asignCourseToUser, createUser, getStudentModules, updateStudentModule } from './controller';
+import { getUser, getUsers, getUserProfile, deleteUser, updateUser, updateProfile, asignCourseToUser, createUser, getStudentModules, updateStudentModule, markContentAsCompleted, getStudentProgress } from './controller';
 import { UpdateUserSchema, UserSchema, UpdateProfileSchema } from '../../types/schemas';
 import { validateBody, basicSanitization } from '../../middleware/zodValidation';
 
@@ -44,6 +44,23 @@ router.patch('/:id/modulos/:moduleId',
   authMiddleware,
   validateBody(z.object({ enabled: z.boolean() })),
   (req: Request, res: Response) => updateStudentModule(req as AuthenticatedRequest, res)
+);
+
+// Rutas para progreso del estudiante
+router.post('/:id/progreso', 
+  authMiddleware,
+  validateBody(z.object({ 
+    moduleId: z.string(),
+    contentIndex: z.number(),
+    contentType: z.enum(['video', 'document']),
+    completed: z.boolean()
+  })),
+  (req: Request, res: Response) => markContentAsCompleted(req as AuthenticatedRequest, res)
+);
+
+router.get('/:id/progreso', 
+  authMiddleware,
+  (req: Request, res: Response) => getStudentProgress(req as AuthenticatedRequest, res)
 );
 
 router.post('/:id/asignar-curso', 

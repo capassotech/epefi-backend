@@ -477,6 +477,81 @@ export const getStudentModules = async (req: AuthenticatedRequest, res: Response
 };
 
 // Actualizar el estado de habilitación de un módulo para un estudiante
+// Marcar contenido como completado
+export const markContentAsCompleted = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params; // ID del estudiante
+    const { moduleId, contentIndex, contentType, completed } = req.body; // contentType: 'video' | 'document'
+
+    // Verificar que el usuario autenticado sea el mismo que el estudiante o sea admin
+    const isAdmin = await validateUser(req);
+    if (!isAdmin && req.user.uid !== id) {
+      return res.status(403).json({ error: 'No autorizado para actualizar este contenido' });
+    }
+
+    // Obtener el documento del usuario
+    const userDoc = await firestore.collection('users').doc(id).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    const userData = userDoc.data();
+    
+    // Inicializar el objeto de progreso si no existe
+    const progreso = userData?.progreso || {};
+    const moduleProgreso = progreso[moduleId] || {};
+    
+    // Crear clave única para el contenido (moduleId + contentType + index)
+    const contentKey = `${moduleId}_${contentType}_${contentIndex}`;
+    
+    // Actualizar el estado de completado
+    moduleProgreso[contentKey] = completed === true;
+    
+    // Guardar el progreso actualizado
+    await firestore.collection('users').doc(id).update({
+      progreso: {
+        ...progreso,
+        [moduleId]: moduleProgreso
+      }
+    });
+
+    return res.status(200).json({ 
+      message: 'Contenido marcado como completado',
+      completed: completed === true
+    });
+  } catch (error: any) {
+    console.error('Error al marcar contenido como completado:', error);
+    return res.status(500).json({ error: 'Error al actualizar el progreso' });
+  }
+};
+
+// Obtener progreso del estudiante
+export const getStudentProgress = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params; // ID del estudiante
+
+    // Verificar que el usuario autenticado sea el mismo que el estudiante o sea admin
+    const isAdmin = await validateUser(req);
+    if (!isAdmin && req.user.uid !== id) {
+      return res.status(403).json({ error: 'No autorizado para ver este progreso' });
+    }
+
+    // Obtener el documento del usuario
+    const userDoc = await firestore.collection('users').doc(id).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    const userData = userDoc.data();
+    const progreso = userData?.progreso || {};
+
+    return res.status(200).json({ progreso });
+  } catch (error: any) {
+    console.error('Error al obtener progreso:', error);
+    return res.status(500).json({ error: 'Error al obtener el progreso' });
+  }
+};
+
 export const updateStudentModule = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const isAuthorized = await validateUser(req);
