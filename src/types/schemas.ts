@@ -125,7 +125,20 @@ export const ModuleSchema = z.object({
     .max(20, "No puede tener más de 20 cursos")
 });
 
-export const UpdateUserSchema = UserSchema.partial();
+export const UpdateUserSchema = z.object({
+  email: z.string().email("El email del usuario es obligatorio").optional(),
+  nombre: z.string().min(1, "El nombre del usuario es obligatorio").optional(),
+  apellido: z.string().min(1, "El apellido del usuario es obligatorio").optional(),
+  password: z.string().min(1, "La contraseña del usuario es obligatoria").optional(),
+  dni: z.string().optional(), // Permitir DNI vacío o opcional para usuarios de Google
+  role: z.object({
+    admin: z.boolean(),
+    student: z.boolean(),
+  }).optional(),
+  activo: z.boolean().optional(),
+  cursos_asignados: z.array(z.string()).optional(),
+  emailVerificado: z.boolean().optional(),
+});
 
 export const UpdateProfileSchema = z.object({
   nombre: z.string().min(1, "El nombre del usuario es obligatorio").trim().optional(),
