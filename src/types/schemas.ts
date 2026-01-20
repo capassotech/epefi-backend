@@ -72,6 +72,30 @@ export const CourseSchema = z.object({
     .union([z.string().url("La URL de fechas de exámenes debe ser válida"), z.null(), z.literal("")])
     .optional()
     .transform((val) => (val === "" ? null : val)),
+  fechaInicioDictado: z
+    .string()
+    .min(1, "La fecha de inicio del dictado es obligatoria")
+    .refine(
+      (val) => {
+        // Validar que sea un string ISO válido o un formato de fecha válido
+        const date = new Date(val);
+        return !isNaN(date.getTime());
+      },
+      { message: "Formato de fecha inválido" }
+    )
+    .optional(),
+  fechaFinDictado: z
+    .string()
+    .min(1, "La fecha de fin del dictado es obligatoria")
+    .refine(
+      (val) => {
+        // Validar que sea un string ISO válido o un formato de fecha válido
+        const date = new Date(val);
+        return !isNaN(date.getTime());
+      },
+      { message: "Formato de fecha inválido" }
+    )
+    .optional(),
 });
 
 export const MateriaSchema = z.object({
@@ -125,7 +149,22 @@ export const ModuleSchema = z.object({
     .max(20, "No puede tener más de 20 cursos")
 });
 
-export const UpdateUserSchema = UserSchema.partial();
+export const UpdateUserSchema = z.object({
+  email: z.string().email("El email del usuario es obligatorio").optional(),
+  nombre: z.string().min(1, "El nombre del usuario es obligatorio").optional(),
+  apellido: z.string().min(1, "El apellido del usuario es obligatorio").optional(),
+  password: z.string().min(1, "La contraseña del usuario es obligatoria").optional(),
+  dni: z.string().optional(), // Permitir DNI vacío o opcional para usuarios de Google
+  role: z.object({
+    admin: z.boolean(),
+    student: z.boolean(),
+  }).optional(),
+  activo: z.boolean().optional(),
+  cursos_asignados: z.array(z.string()).optional(),
+  emailVerificado: z.boolean().optional(),
+  modulos_habilitados: z.record(z.string(), z.boolean()).optional(), // Record<string, boolean>
+  progreso: z.record(z.string(), z.record(z.string(), z.boolean())).optional(), // Record<string, Record<string, boolean>>
+});
 
 export const UpdateProfileSchema = z.object({
   nombre: z.string().min(1, "El nombre del usuario es obligatorio").trim().optional(),

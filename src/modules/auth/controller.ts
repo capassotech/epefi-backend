@@ -161,6 +161,7 @@ export const login = async (req: Request, res: Response) => {
         role: userData.role,
         emailVerificado: userRecord.emailVerified,
         fechaRegistro: userData.fechaRegistro || userData.fechaCreacion,
+        activo: userData.activo !== undefined ? userData.activo : true,
       },
     });
   } catch (error: any) {
@@ -182,19 +183,20 @@ export const createGoogleUser = async (req: AuthenticatedRequest, res: Response)
     if (userDoc.exists) {
       // Si ya existe, devolver los datos existentes
       const userData = userDoc.data();
-      return res.status(200).json({
-        message: "Usuario ya existe",
-        user: {
-          uid: uid,
-          email: firebaseUser.email,
-          nombre: userData?.nombre || "",
-          apellido: userData?.apellido || "",
-          dni: userData?.dni || "",
-          role: userData?.role || { admin: false, student: true },
-          emailVerificado: firebaseUser.emailVerified,
-          fechaRegistro: userData?.fechaRegistro || userData?.fechaCreacion || new Date(),
-        },
-      });
+        return res.status(200).json({
+          message: "Usuario ya existe",
+          user: {
+            uid: uid,
+            email: firebaseUser.email,
+            nombre: userData?.nombre || "",
+            apellido: userData?.apellido || "",
+            dni: userData?.dni || "",
+            role: userData?.role || { admin: false, student: true },
+            emailVerificado: firebaseUser.emailVerified,
+            fechaRegistro: userData?.fechaRegistro || userData?.fechaCreacion || new Date(),
+            activo: userData?.activo !== undefined ? userData.activo : true,
+          },
+        });
     }
 
     // Extraer nombre y apellido del displayName
@@ -233,6 +235,7 @@ export const createGoogleUser = async (req: AuthenticatedRequest, res: Response)
         role: userData.role,
         emailVerificado: userData.emailVerificado,
         fechaRegistro: userData.fechaRegistro,
+        activo: userData.activo,
       },
     });
   } catch (error: any) {

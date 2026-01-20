@@ -186,6 +186,96 @@ export const formatFirestoreDoc = (doc: any): any => {
   const formatted: Record<string, any> = { id: doc.id };
 
   for (const [key, value] of Object.entries(data)) {
+    // Manejar fechas (fechaInicioDictado, fechaFinDictado, etc.)
+    const isDateField = key.toLowerCase().includes('fecha') || key.toLowerCase().includes('date');
+    
+    if (isDateField) {
+      if (value === null || value === undefined) {
+        formatted[key] = value;
+        continue;
+      }
+      
+      // Si es un Timestamp de Firestore con toDate (verificar primero antes de strings)
+      if (
+        value &&
+        typeof value === "object" &&
+        "toDate" in value &&
+        typeof (value as any).toDate === "function"
+      ) {
+        try {
+          const timestamp = value as { toDate: () => Date };
+          const dateObj = timestamp.toDate();
+          if (!isNaN(dateObj.getTime())) {
+            formatted[key] = dateObj.toISOString();
+            continue;
+          }
+        } catch (e) {
+          console.warn(`Error converting timestamp for ${key}:`, e);
+        }
+      }
+      
+      // Si es un Timestamp serializado (con seconds o _seconds)
+      if (
+        value &&
+        typeof value === "object" &&
+        ("seconds" in value || "_seconds" in value) &&
+        typeof ((value as any).seconds || (value as any)._seconds) === "number"
+      ) {
+        try {
+          const seconds = (value as any).seconds || (value as any)._seconds;
+          const dateObj = new Date(seconds * 1000);
+          if (!isNaN(dateObj.getTime())) {
+            formatted[key] = dateObj.toISOString();
+            continue;
+          }
+        } catch (e) {
+          console.warn(`Error converting seconds timestamp for ${key}:`, e);
+        }
+      }
+      
+      // Si es un objeto Date
+      if (value instanceof Date) {
+        try {
+          if (!isNaN(value.getTime())) {
+            formatted[key] = value.toISOString();
+            continue;
+          }
+        } catch (e) {
+          console.warn(`Error converting Date for ${key}:`, e);
+        }
+      }
+      
+      // Si ya es un string ISO válido, mantenerlo o normalizarlo
+      if (typeof value === "string") {
+        // Verificar si es un string ISO válido
+        const dateFromString = new Date(value);
+        if (!isNaN(dateFromString.getTime())) {
+          // Normalizar a ISO string completo
+          formatted[key] = dateFromString.toISOString();
+          continue;
+        }
+        // Si no es un string de fecha válido, mantener el valor original
+        formatted[key] = value;
+        continue;
+      }
+      
+      // Intentar convertir cualquier otro valor a Date
+      try {
+        const dateValue = new Date(value as any);
+        if (!isNaN(dateValue.getTime())) {
+          formatted[key] = dateValue.toISOString();
+          continue;
+        }
+      } catch (e) {
+        // Si no se puede convertir, mantener el valor original
+      }
+      
+      // Si llegamos aquí, mantener el valor original
+      formatted[key] = value;
+      continue;
+    }
+    
+    // Para otros campos, mantener la lógica original
     if (
       value &&
       typeof value === "object" &&
@@ -195,6 +285,22 @@ export const formatFirestoreDoc = (doc: any): any => {
       // Es un Timestamp de Firestore
       const timestamp = value as { toDate: () => Date };
       formatted[key] = timestamp.toDate().toISOString();
+    } else if (
+      value &&
+      typeof value === "object" &&
+      value !== null &&
+      ("seconds" in value || "_seconds" in value)
+    ) {
+      // Es un Timestamp serializado de Firestore (con seconds o _seconds)
+      const seconds = (value as any).seconds || (value as any)._seconds;
+      if (typeof seconds === "number") {
+        formatted[key] = new Date(seconds * 1000).toISOString();
+      } else {
+        formatted[key] = value;
+      }
+    } else if (value instanceof Date) {
+      // Es un objeto Date directo
+      formatted[key] = value.toISOString();
     } else {
       formatted[key] = value;
     }

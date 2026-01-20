@@ -1,6 +1,7 @@
 import { NextFunction, Router, Request, Response } from 'express';
+import { z } from 'zod';
 import { AuthenticatedRequest, authMiddleware } from '../../middleware/authMiddleware';
-import { getUser, getUsers, getUserProfile, deleteUser, updateUser, updateProfile, asignCourseToUser, createUser } from './controller';
+import { getUser, getUsers, getUserProfile, deleteUser, updateUser, updateProfile, asignCourseToUser, createUser, getStudentModules, updateStudentModule, markContentAsCompleted, getStudentProgress } from './controller';
 import { UpdateUserSchema, UserSchema, UpdateProfileSchema } from '../../types/schemas';
 import { validateBody, basicSanitization } from '../../middleware/zodValidation';
 
@@ -26,16 +27,51 @@ router.get('/',
   (req: Request, res: Response) => getUsers(req as AuthenticatedRequest, res)
 );
 
-// Ruta con parámetro debe ir DESPUÉS de las rutas específicas
-router.get('/:id', 
-  authMiddleware, 
-  (req: Request, res: Response) => getUser(req as AuthenticatedRequest, res)
-);
-
 router.post('/', 
   authMiddleware, 
   validateBody(UserSchema), 
   (req: Request, res: Response) => createUser(req as AuthenticatedRequest, res)
+);
+
+// IMPORTANTE: Las rutas específicas con más segmentos deben ir ANTES de /:id
+// Rutas para progreso del estudiante (deben ir PRIMERO para evitar conflictos)
+router.get('/:id/progreso', 
+  authMiddleware,
+  (req: Request, res: Response) => getStudentProgress(req as AuthenticatedRequest, res)
+);
+
+router.post('/:id/progreso', 
+  authMiddleware,
+  validateBody(z.object({ 
+    moduleId: z.string(),
+    contentIndex: z.number(),
+    contentType: z.enum(['video', 'document']),
+    completed: z.boolean()
+  })),
+  (req: Request, res: Response) => markContentAsCompleted(req as AuthenticatedRequest, res)
+);
+
+// Rutas para gestión de módulos por estudiante (deben ir antes de /:id)
+router.get('/:id/modulos', 
+  authMiddleware, 
+  (req: Request, res: Response) => getStudentModules(req as AuthenticatedRequest, res)
+);
+
+router.patch('/:id/modulos/:moduleId', 
+  authMiddleware,
+  validateBody(z.object({ enabled: z.boolean() })),
+  (req: Request, res: Response) => updateStudentModule(req as AuthenticatedRequest, res)
+);
+
+router.post('/:id/asignar-curso', 
+  authMiddleware, 
+  (req: Request, res: Response) => asignCourseToUser(req as AuthenticatedRequest, res)
+);
+
+// Ruta con parámetro debe ir DESPUÉS de las rutas específicas
+router.get('/:id', 
+  authMiddleware, 
+  (req: Request, res: Response) => getUser(req as AuthenticatedRequest, res)
 );
 
 router.delete('/:id', 
@@ -47,11 +83,6 @@ router.put('/:id',
   authMiddleware, 
   validateBody(UpdateUserSchema), 
   (req: Request, res: Response) => updateUser(req as AuthenticatedRequest, res)
-);
-
-router.post('/:id/asignar-curso', 
-  authMiddleware, 
-  (req: Request, res: Response) => asignCourseToUser(req as AuthenticatedRequest, res)
 );
 
 export default router;
