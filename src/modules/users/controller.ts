@@ -86,7 +86,11 @@ export const getUser = async (req: AuthenticatedRequest, res: Response) => {
     return res.status(404).json({ error: 'Usuario no encontrado' });
   }
 
-  return res.json(userDoc.data());
+  return res.json({
+    id: userDoc.id,
+    uid: userDoc.id,
+    ...userDoc.data()
+  });
 };
 
 export const getUsers = async (req: AuthenticatedRequest, res: Response) => {
@@ -190,11 +194,33 @@ export const updateUser = async (req: AuthenticatedRequest, res: Response) => {
     const uid = req.params.id;
     const updateData: ValidatedUpdateUser = req.body;
     
+    console.log('🔄 Actualizando usuario:', {
+      uid,
+      uidType: typeof uid,
+      uidLength: uid?.length,
+      updateDataKeys: Object.keys(updateData),
+      cursosAsignados: updateData.cursos_asignados?.length || 0
+    });
+    
     const userDoc = await firestore.collection('users').doc(uid).get();
 
     if (!userDoc.exists) {
+      console.error('❌ Usuario no encontrado en Firestore:', {
+        uid,
+        collection: 'users',
+        documentExists: userDoc.exists
+      });
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
+    
+    console.log('✅ Usuario encontrado en Firestore:', {
+      documentId: userDoc.id,
+      userData: {
+        nombre: userDoc.data()?.nombre,
+        apellido: userDoc.data()?.apellido,
+        email: userDoc.data()?.email
+      }
+    });
 
     if (updateData.cursos_asignados && updateData.cursos_asignados.length > 0) {
       for (const cursoId of updateData.cursos_asignados) {
