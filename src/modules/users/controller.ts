@@ -194,40 +194,152 @@ export const updateUser = async (req: AuthenticatedRequest, res: Response) => {
     const uid = req.params.id;
     const updateData: ValidatedUpdateUser = req.body;
     
+    // Limpiar el UID de espacios y caracteres especiales
+    const cleanUid = uid?.trim();
+    
     console.log('🔄 Actualizando usuario:', {
-      uid,
-      uidType: typeof uid,
-      uidLength: uid?.length,
+      originalUid: uid,
+      cleanUid,
+      uidType: typeof cleanUid,
+      uidLength: cleanUid?.length,
       updateDataKeys: Object.keys(updateData),
-      cursosAsignados: updateData.cursos_asignados?.length || 0
+      updateDataUid: updateData.uid,
+      cursosAsignados: updateData.cursos_asignados?.length || 0,
+      requestUrl: req.url,
+      requestPath: req.path
     });
     
-    const userDoc = await firestore.collection('users').doc(uid).get();
+    if (!cleanUid || cleanUid === '') {
+      console.error('❌ UID vacío o inválido:', { uid, cleanUid });
+      return res.status(400).json({ error: 'ID de usuario inválido' });
+    }
+    
+    const userDoc = await firestore.collection('users').doc(cleanUid).get();
 
     if (!userDoc.exists) {
       console.error('❌ Usuario no encontrado en Firestore:', {
-        uid,
+        originalUid: uid,
+        cleanUid,
         collection: 'users',
-        documentExists: userDoc.exists
+        documentExists: userDoc.exists,
+        documentId: userDoc.id
       });
+      
+      // Intentar buscar por el uid del body si es diferente
+      if (updateData.uid && updateData.uid.trim() !== cleanUid) {
+        const altUserDoc = await firestore.collection('users').doc(updateData.uid.trim()).get();
+        if (altUserDoc.exists) {
+          console.log('✅ Usuario encontrado con UID alternativo del body:', {
+            bodyUid: updateData.uid,
+            documentId: altUserDoc.id
+          });
+          // Continuar con el UID del body
+          const altCleanUid = updateData.uid.trim();
+          const altUserDocForUpdate = await firestore.collection('users').doc(altCleanUid).get();
+          // Actualizar usando el UID del body
+          if (updateData.cursos_asignados && updateData.cursos_asignados.length > 0) {
+            console.log('🔍 Validando cursos asignados (ruta alternativa):', {
+              cantidad: updateData.cursos_asignados.length,
+              cursos: updateData.cursos_asignados
+            });
+            
+            for (const cursoId of updateData.cursos_asignados) {
+              if (!cursoId || cursoId.trim() === '') {
+                console.error('❌ Curso con ID vacío encontrado en la lista');
+                return res.status(400).json({ 
+                  error: 'Uno de los cursos asignados tiene un ID inválido',
+                  cursoId: cursoId
+                });
+              }
+              
+              const cursoDoc = await firestore.collection('cursos').doc(cursoId.trim()).get();
+              if (!cursoDoc.exists) {
+                console.error('❌ Curso no encontrado en Firestore (ruta alternativa):', {
+                  cursoId: cursoId,
+                  cursoIdTrimmed: cursoId.trim(),
+                  todosLosCursos: updateData.cursos_asignados
+                });
+                return res.status(400).json({ 
+                  error: `El curso con ID "${cursoId}" no existe en el sistema`,
+                  cursoId: cursoId,
+                  tipo: 'curso_no_encontrado'
+                });
+              }
+            }
+          }
+          const currentUserData = altUserDocForUpdate.data();
+          const currentCursos = currentUserData?.cursos_asignados || [];
+          const newCursos = updateData.cursos_asignados || [];
+          const cursosNuevos = newCursos.filter((cursoId: string) => !currentCursos.includes(cursoId));
+          let modulosHabilitados = currentUserData?.modulos_habilitados || {};
+          if (cursosNuevos.length > 0) {
+            for (const cursoId of cursosNuevos) {
+              const courseModules = await initializeCourseModules(cursoId);
+              modulosHabilitados = { ...modulosHabilitados, ...courseModules };
+            }
+            updateData.modulos_habilitados = modulosHabilitados;
+          }
+          await altUserDocForUpdate.ref.update(updateData);
+          const updatedDoc = await firestore.collection('users').doc(altCleanUid).get();
+          return res.status(200).json({
+            message: 'Usuario actualizado correctamente',
+            user: {
+              id: updatedDoc.id,
+              ...updatedDoc.data()
+            }
+          });
+        }
+      }
+      
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
     
     console.log('✅ Usuario encontrado en Firestore:', {
+      originalUid: uid,
+      cleanUid,
       documentId: userDoc.id,
       userData: {
         nombre: userDoc.data()?.nombre,
         apellido: userDoc.data()?.apellido,
-        email: userDoc.data()?.email
+        email: userDoc.data()?.email,
+        uid: userDoc.data()?.uid
       }
     });
 
     if (updateData.cursos_asignados && updateData.cursos_asignados.length > 0) {
+      console.log('🔍 Validando cursos asignados:', {
+        cantidad: updateData.cursos_asignados.length,
+        cursos: updateData.cursos_asignados
+      });
+      
       for (const cursoId of updateData.cursos_asignados) {
-        const cursoDoc = await firestore.collection('cursos').doc(cursoId).get();
-        if (!cursoDoc.exists) {
-          return res.status(404).json({ error: 'Curso no encontrado' });
+        if (!cursoId || cursoId.trim() === '') {
+          console.error('❌ Curso con ID vacío encontrado en la lista');
+          return res.status(400).json({ 
+            error: 'Uno de los cursos asignados tiene un ID inválido',
+            cursoId: cursoId
+          });
         }
+        
+        const cursoDoc = await firestore.collection('cursos').doc(cursoId.trim()).get();
+        if (!cursoDoc.exists) {
+          console.error('❌ Curso no encontrado en Firestore:', {
+            cursoId: cursoId,
+            cursoIdTrimmed: cursoId.trim(),
+            cursoIdLength: cursoId.length,
+            todosLosCursos: updateData.cursos_asignados
+          });
+          return res.status(400).json({ 
+            error: `El curso con ID "${cursoId}" no existe en el sistema`,
+            cursoId: cursoId,
+            tipo: 'curso_no_encontrado'
+          });
+        }
+        
+        console.log('✅ Curso validado:', {
+          cursoId: cursoId,
+          cursoTitulo: cursoDoc.data()?.titulo || 'Sin título'
+        });
       }
     }
 
@@ -250,7 +362,7 @@ export const updateUser = async (req: AuthenticatedRequest, res: Response) => {
 
     await userDoc.ref.update(updateData);
 
-    const updatedDoc = await firestore.collection('users').doc(uid).get();
+    const updatedDoc = await firestore.collection('users').doc(cleanUid).get();
 
     return res.status(200).json({
       message: 'Usuario actualizado correctamente',

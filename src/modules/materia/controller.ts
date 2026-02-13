@@ -7,11 +7,12 @@ import type {
   ValidatedUpdateMateria,
 } from "../../types/schemas";
 import { validateUser } from "../../utils/utils";
-import { FieldValue } from "firebase-admin/firestore";
+import { FieldValue, WriteBatch } from "firebase-admin/firestore";
 
 const materiasCollection = firestore.collection("materias");
 const modulosCollection = firestore.collection("modulos");
 const cursosCollection = firestore.collection("cursos");
+const usersCollection = firestore.collection("users");
 
 export const getAllMaterias = async (_: Request, res: Response) => {
   try {
@@ -329,5 +330,134 @@ export const deleteMateria = async (
   } catch (err) {
     console.error("deleteMateria error:", err);
     return res.status(500).json({ error: "Error al eliminar materia" });
+  }
+};
+
+export const toggleModuleForAllStudents = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  const isAuthorized = await validateUser(req);
+  if (!isAuthorized) {
+    return res.status(403).json({
+      error: "No autorizado. Se requieren permisos de administrador.",
+    });
+  }
+
+  try {
+    const { id: materiaId } = req.params;
+    const { moduleId, enabled } = req.body;
+
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: 'El campo "enabled" debe ser un booleano' });
+    }
+
+    if (!moduleId || typeof moduleId !== 'string') {
+      return res.status(400).json({ error: 'El campo "moduleId" es requerido' });
+    }
+
+    // Verificar que la materia existe
+    const materiaExists = await materiasCollection.doc(materiaId).get();
+    if (!materiaExists.exists) {
+      return res.status(404).json({ error: "Materia no encontrada" });
+    }
+
+    const materiaData = materiaExists.data();
+    if (!materiaData?.modulos || !materiaData.modulos.includes(moduleId)) {
+      return res.status(404).json({ error: "El módulo no pertenece a esta materia" });
+    }
+
+    // Verificar que el módulo existe
+    const moduloExists = await modulosCollection.doc(moduleId).get();
+    if (!moduloExists.exists) {
+      return res.status(404).json({ error: "Módulo no encontrado" });
+    }
+
+    // Encontrar todos los cursos que tienen esta materia
+    const cursosConMateria = await cursosCollection
+      .where("materias", "array-contains", materiaId)
+      .get();
+
+    if (cursosConMateria.empty) {
+      return res.json({
+        message: `Módulo ${enabled ? 'habilitado' : 'deshabilitado'} exitosamente. No hay cursos con esta materia asignada.`,
+        updatedUsers: 0,
+      });
+    }
+
+    const cursoIds = cursosConMateria.docs.map(doc => doc.id);
+
+    // Encontrar todos los usuarios que tienen alguno de estos cursos asignados
+    const allUsers = await usersCollection.get();
+    const usersToUpdate: string[] = [];
+
+    for (const userDoc of allUsers.docs) {
+      const userData = userDoc.data();
+      const cursosAsignados = userData?.cursos_asignados || [];
+      
+      // Verificar si el usuario tiene alguno de los cursos que contienen esta materia
+      const hasRelevantCourse = cursoIds.some(cursoId => cursosAsignados.includes(cursoId));
+      
+      if (hasRelevantCourse) {
+        usersToUpdate.push(userDoc.id);
+      }
+    }
+
+    // Actualizar todos los usuarios encontrados usando batches
+    const batchSize = 500; // Firestore permite máximo 500 operaciones por batch
+    let updatedCount = 0;
+    const batches: WriteBatch[] = [];
+    let currentBatch = firestore.batch();
+    let currentBatchSize = 0;
+
+    // Primero obtener todos los datos de usuarios que necesitamos actualizar
+    const userDocs = await Promise.all(
+      usersToUpdate.map(userId => usersCollection.doc(userId).get())
+    );
+
+    for (let i = 0; i < userDocs.length; i++) {
+      const userDoc = userDocs[i];
+      if (!userDoc.exists) continue;
+
+      const userData = userDoc.data();
+      const modulosHabilitados = userData?.modulos_habilitados || {};
+      
+      // Actualizar el estado del módulo
+      modulosHabilitados[moduleId] = enabled;
+
+      currentBatch.update(userDoc.ref, {
+        modulos_habilitados: modulosHabilitados,
+        fechaActualizacion: new Date(),
+      });
+
+      currentBatchSize++;
+      updatedCount++;
+
+      // Si llegamos al límite del batch, guardamos el batch actual y creamos uno nuevo
+      if (currentBatchSize >= batchSize) {
+        batches.push(currentBatch);
+        currentBatch = firestore.batch();
+        currentBatchSize = 0;
+      }
+    }
+
+    // Agregar el último batch si tiene operaciones
+    if (currentBatchSize > 0) {
+      batches.push(currentBatch);
+    }
+
+    // Ejecutar todos los batches
+    await Promise.all(batches.map(batch => batch.commit()));
+
+    return res.json({
+      message: `Módulo ${enabled ? 'habilitado' : 'deshabilitado'} exitosamente para todos los estudiantes con esta materia`,
+      updatedUsers: updatedCount,
+      materiaId,
+      moduleId,
+      enabled,
+    });
+  } catch (err) {
+    console.error("toggleModuleForAllStudents error:", err);
+    return res.status(500).json({ error: "Error al actualizar módulos de manera grupal" });
   }
 };
