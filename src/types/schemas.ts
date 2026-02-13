@@ -150,6 +150,7 @@ export const ModuleSchema = z.object({
 });
 
 export const UpdateUserSchema = z.object({
+  uid: z.string().optional(),
   email: z.string().email("El email del usuario es obligatorio").optional(),
   nombre: z.string().min(1, "El nombre del usuario es obligatorio").optional(),
   apellido: z.string().min(1, "El apellido del usuario es obligatorio").optional(),
