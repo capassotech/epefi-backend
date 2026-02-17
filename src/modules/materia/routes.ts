@@ -8,6 +8,7 @@ import {
   deleteMateria,
   toggleMateriaStatus,
   toggleModuleForAllStudents,
+  getModulosHabilitadosEstado,
 } from "./controller";
 import {
   authMiddleware,
@@ -67,6 +68,14 @@ const toggleModuleForAllStudentsHandler = (
   return toggleModuleForAllStudents(req as AuthenticatedRequest, res);
 };
 
+const getModulosHabilitadosEstadoHandler = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  return getModulosHabilitadosEstado(req as AuthenticatedRequest, res);
+};
+
 // Rutas públicas
 router.get("/", getAllMaterias);
 
@@ -94,6 +103,14 @@ router.patch(
 
 // Ruta para alternar estado (debe ir antes de /:id para evitar conflictos)
 router.patch("/:id/toggle-status", authMiddleware, toggleMateriaStatusHandler);
+
+// Estado de módulos habilitados desde la BD (usuarios con esta materia)
+router.get(
+  "/:id/modulos-habilitados-estado",
+  authMiddleware,
+  validateParams(IdParamSchema),
+  getModulosHabilitadosEstadoHandler
+);
 
 // Rutas genéricas con :id (deben ir al final)
 router.get("/:id", getMateriaById);
