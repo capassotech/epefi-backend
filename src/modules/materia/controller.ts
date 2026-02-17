@@ -52,7 +52,6 @@ export const getMateriaById = async (req: Request, res: Response) => {
     return res.json({
       id: doc.id,
       ...data,
-      // Si no existe el campo activo, asumir que está activo (true) por defecto
       activo: data?.activo !== undefined ? data.activo : true,
     });
   } catch (err) {
@@ -206,7 +205,6 @@ export const updateMateria = async (
       }
     }
 
-    // Agregar fecha de actualización
     const dataToUpdate = {
       ...updateData,
       fechaActualizacion: new Date(),
@@ -459,5 +457,68 @@ export const toggleModuleForAllStudents = async (
   } catch (err) {
     console.error("toggleModuleForAllStudents error:", err);
     return res.status(500).json({ error: "Error al actualizar módulos de manera grupal" });
+  }
+};
+
+/**
+ * Devuelve el estado habilitado de cada módulo de la materia según la BD:
+ * para cada módulo, true solo si todos los usuarios con esa materia lo tienen habilitado.
+ */
+export const getModulosHabilitadosEstado = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  const isAuthorized = await validateUser(req);
+  if (!isAuthorized) {
+    return res.status(403).json({
+      error: "No autorizado. Se requieren permisos de administrador.",
+    });
+  }
+
+  try {
+    const { id: materiaId } = req.params;
+    const materiaDoc = await materiasCollection.doc(materiaId).get();
+    if (!materiaDoc.exists) {
+      return res.status(404).json({ error: "Materia no encontrada" });
+    }
+
+    const materiaData = materiaDoc.data();
+    const modulosIds: string[] = materiaData?.modulos || [];
+    if (modulosIds.length === 0) {
+      return res.json({ modulos_habilitados_estado: {} });
+    }
+
+    const cursosConMateria = await cursosCollection
+      .where("materias", "array-contains", materiaId)
+      .get();
+    const cursoIds = cursosConMateria.docs.map((d) => d.id);
+    if (cursoIds.length === 0) {
+      const vacio = Object.fromEntries(modulosIds.map((mid) => [mid, false]));
+      return res.json({ modulos_habilitados_estado: vacio });
+    }
+
+    const allUsers = await usersCollection.get();
+    const usersConMateria = allUsers.docs.filter((userDoc) => {
+      const cursosAsignados = userDoc.data()?.cursos_asignados || [];
+      return cursoIds.some((cid) => cursosAsignados.includes(cid));
+    });
+
+    if (usersConMateria.length === 0) {
+      const vacio = Object.fromEntries(modulosIds.map((mid) => [mid, false]));
+      return res.json({ modulos_habilitados_estado: vacio });
+    }
+
+    const estado: Record<string, boolean> = {};
+    for (const moduleId of modulosIds) {
+      const todosHabilitados = usersConMateria.every((userDoc) => {
+        const mh = userDoc.data()?.modulos_habilitados || {};
+        return mh[moduleId] === true;
+      });
+      estado[moduleId] = todosHabilitados;
+    }
+    return res.json({ modulos_habilitados_estado: estado });
+  } catch (err) {
+    console.error("getModulosHabilitadosEstado error:", err);
+    return res.status(500).json({ error: "Error al obtener estado de módulos" });
   }
 };
