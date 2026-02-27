@@ -7,6 +7,7 @@ import {
   updateMateria,
   deleteMateria,
   toggleMateriaStatus,
+  getModulosEstadoByMateria,
 } from "./controller";
 import {
   authMiddleware,
@@ -60,6 +61,9 @@ const toggleMateriaStatusHandler = (
 
 // Rutas públicas
 router.get("/", getAllMaterias);
+
+// Rutas específicas deben ir ANTES de /:id
+router.get("/:id/modulos-habilitados-estado", getModulosEstadoByMateria);
 
 router.get("/:id", getMateriaById);
 
