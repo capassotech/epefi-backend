@@ -150,6 +150,9 @@ export const ModuleSchema = z.object({
   nombres_archivos: z
     .string()
     .optional(),
+  nombres_videos: z
+    .string()
+    .optional(),
 });
 
 export const UpdateUserSchema = z.object({
