@@ -7,6 +7,8 @@ import {
   updateMateria,
   deleteMateria,
   toggleMateriaStatus,
+  toggleModuleForAllStudents,
+  getModulosHabilitadosEstado,
   getModulosEstadoByMateria,
 } from "./controller";
 import {
@@ -59,6 +61,22 @@ const toggleMateriaStatusHandler = (
   return toggleMateriaStatus(req as AuthenticatedRequest, res);
 };
 
+const toggleModuleForAllStudentsHandler = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  return toggleModuleForAllStudents(req as AuthenticatedRequest, res);
+};
+
+const getModulosHabilitadosEstadoHandler = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  return getModulosHabilitadosEstado(req as AuthenticatedRequest, res);
+};
+
 // Rutas públicas
 router.get("/", getAllMaterias);
 
@@ -76,6 +94,33 @@ router.post(
   createMateriaHandler
 );
 
+// IMPORTANTE: Las rutas más específicas deben ir ANTES de las genéricas
+// Ruta para habilitar/deshabilitar módulos de manera grupal (debe ir antes de /:id)
+router.patch(
+  "/:id/modulos/toggle",
+  authMiddleware,
+  validateParams(IdParamSchema),
+  validateBody(z.object({
+    moduleId: z.string().min(1),
+    enabled: z.boolean(),
+  })),
+  toggleModuleForAllStudentsHandler
+);
+
+// Ruta para alternar estado (debe ir antes de /:id para evitar conflictos)
+router.patch("/:id/toggle-status", authMiddleware, toggleMateriaStatusHandler);
+
+// Estado de módulos habilitados desde la BD (usuarios con esta materia)
+router.get(
+  "/:id/modulos-habilitados-estado",
+  authMiddleware,
+  validateParams(IdParamSchema),
+  getModulosHabilitadosEstadoHandler
+);
+
+// Rutas genéricas con :id (deben ir al final)
+router.get("/:id", getMateriaById);
+
 router.put(
   "/:id",
   authMiddleware,
@@ -84,9 +129,6 @@ router.put(
   validateBody(UpdateMateriaSchema),
   updateMateriaHandler
 );
-
-// Ruta para alternar estado (debe ir antes de /:id para evitar conflictos)
-router.patch("/:id/toggle-status", authMiddleware, toggleMateriaStatusHandler);
 
 router.delete(
   "/:id",
