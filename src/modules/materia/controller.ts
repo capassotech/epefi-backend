@@ -7,12 +7,28 @@ import type {
   ValidatedUpdateMateria,
 } from "../../types/schemas";
 import { validateUser } from "../../utils/utils";
-import { FieldValue, WriteBatch } from "firebase-admin/firestore";
+import { FieldValue } from "firebase-admin/firestore";
 
 const materiasCollection = firestore.collection("materias");
 const modulosCollection = firestore.collection("modulos");
 const cursosCollection = firestore.collection("cursos");
-const usersCollection = firestore.collection("users");
+
+/**
+ * Inicializa modulos_estado para los módulos de una materia.
+ * Primer módulo → enabledGlobal: true, resto → enabledGlobal: false.
+ * No sobrescribe documentos existentes.
+ */
+async function syncModulosEstado(materiaId: string, modulosIds: string[]): Promise<void> {
+  if (modulosIds.length === 0) return;
+  const modulosEstadoRef = materiasCollection.doc(materiaId).collection("modulos_estado");
+  for (let i = 0; i < modulosIds.length; i++) {
+    const moduleId = modulosIds[i];
+    const doc = await modulosEstadoRef.doc(moduleId).get();
+    if (!doc.exists) {
+      await modulosEstadoRef.doc(moduleId).set({ enabledGlobal: i === 0 });
+    }
+  }
+}
 
 export const getAllMaterias = async (_: Request, res: Response) => {
   try {
@@ -119,6 +135,8 @@ export const createMateria = async (
 
     const docRef = await materiasCollection.add(materiaWithDates);
 
+    await syncModulosEstado(docRef.id, materiaData.modulos || []);
+
     for (const cursoId of materiaData.id_cursos || []) {
       const cursoDoc = await cursosCollection.doc(cursoId).get();
 
@@ -211,6 +229,10 @@ export const updateMateria = async (
     };
 
     await materiasCollection.doc(id).update(dataToUpdate);
+
+    if (updateData.modulos && updateData.modulos.length > 0) {
+      await syncModulosEstado(id, updateData.modulos);
+    }
 
     for (const cursoId of updateData.id_cursos || []) {
       const cursoDoc = await cursosCollection.doc(cursoId).get();
@@ -371,85 +393,16 @@ export const toggleModuleForAllStudents = async (
       return res.status(404).json({ error: "Módulo no encontrado" });
     }
 
-    // Encontrar todos los cursos que tienen esta materia
-    const cursosConMateria = await cursosCollection
-      .where("materias", "array-contains", materiaId)
-      .get();
-
-    if (cursosConMateria.empty) {
-      return res.json({
-        message: `Módulo ${enabled ? 'habilitado' : 'deshabilitado'} exitosamente. No hay cursos con esta materia asignada.`,
-        updatedUsers: 0,
-      });
-    }
-
-    const cursoIds = cursosConMateria.docs.map(doc => doc.id);
-
-    // Encontrar todos los usuarios que tienen alguno de estos cursos asignados
-    const allUsers = await usersCollection.get();
-    const usersToUpdate: string[] = [];
-
-    for (const userDoc of allUsers.docs) {
-      const userData = userDoc.data();
-      const cursosAsignados = userData?.cursos_asignados || [];
-      
-      // Verificar si el usuario tiene alguno de los cursos que contienen esta materia
-      const hasRelevantCourse = cursoIds.some(cursoId => cursosAsignados.includes(cursoId));
-      
-      if (hasRelevantCourse) {
-        usersToUpdate.push(userDoc.id);
-      }
-    }
-
-    // Actualizar todos los usuarios encontrados usando batches
-    const batchSize = 500; // Firestore permite máximo 500 operaciones por batch
-    let updatedCount = 0;
-    const batches: WriteBatch[] = [];
-    let currentBatch = firestore.batch();
-    let currentBatchSize = 0;
-
-    // Primero obtener todos los datos de usuarios que necesitamos actualizar
-    const userDocs = await Promise.all(
-      usersToUpdate.map(userId => usersCollection.doc(userId).get())
-    );
-
-    for (let i = 0; i < userDocs.length; i++) {
-      const userDoc = userDocs[i];
-      if (!userDoc.exists) continue;
-
-      const userData = userDoc.data();
-      const modulosHabilitados = userData?.modulos_habilitados || {};
-      
-      // Actualizar el estado del módulo
-      modulosHabilitados[moduleId] = enabled;
-
-      currentBatch.update(userDoc.ref, {
-        modulos_habilitados: modulosHabilitados,
-        fechaActualizacion: new Date(),
-      });
-
-      currentBatchSize++;
-      updatedCount++;
-
-      // Si llegamos al límite del batch, guardamos el batch actual y creamos uno nuevo
-      if (currentBatchSize >= batchSize) {
-        batches.push(currentBatch);
-        currentBatch = firestore.batch();
-        currentBatchSize = 0;
-      }
-    }
-
-    // Agregar el último batch si tiene operaciones
-    if (currentBatchSize > 0) {
-      batches.push(currentBatch);
-    }
-
-    // Ejecutar todos los batches
-    await Promise.all(batches.map(batch => batch.commit()));
+    // Persistir estado global en subcolección materias/{materiaId}/modulos_estado/{moduleId}
+    await materiasCollection
+      .doc(materiaId)
+      .collection("modulos_estado")
+      .doc(moduleId)
+      .set({ enabledGlobal: enabled }, { merge: true });
 
     return res.json({
       message: `Módulo ${enabled ? 'habilitado' : 'deshabilitado'} exitosamente para todos los estudiantes con esta materia`,
-      updatedUsers: updatedCount,
+      updatedUsers: 0,
       materiaId,
       moduleId,
       enabled,
@@ -462,7 +415,7 @@ export const toggleModuleForAllStudents = async (
 
 /**
  * Devuelve el estado habilitado de cada módulo de la materia según la BD:
- * para cada módulo, true solo si todos los usuarios con esa materia lo tienen habilitado.
+ * lee exclusivamente desde materias/{materiaId}/modulos_estado/{moduloId}.enabledGlobal.
  */
 export const getModulosHabilitadosEstado = async (
   req: AuthenticatedRequest,
@@ -488,33 +441,14 @@ export const getModulosHabilitadosEstado = async (
       return res.json({ modulos_habilitados_estado: {} });
     }
 
-    const cursosConMateria = await cursosCollection
-      .where("materias", "array-contains", materiaId)
-      .get();
-    const cursoIds = cursosConMateria.docs.map((d) => d.id);
-    if (cursoIds.length === 0) {
-      const vacio = Object.fromEntries(modulosIds.map((mid) => [mid, false]));
-      return res.json({ modulos_habilitados_estado: vacio });
-    }
-
-    const allUsers = await usersCollection.get();
-    const usersConMateria = allUsers.docs.filter((userDoc) => {
-      const cursosAsignados = userDoc.data()?.cursos_asignados || [];
-      return cursoIds.some((cid) => cursosAsignados.includes(cid));
-    });
-
-    if (usersConMateria.length === 0) {
-      const vacio = Object.fromEntries(modulosIds.map((mid) => [mid, false]));
-      return res.json({ modulos_habilitados_estado: vacio });
-    }
+    const modulosEstadoRef = materiasCollection
+      .doc(materiaId)
+      .collection("modulos_estado");
 
     const estado: Record<string, boolean> = {};
     for (const moduleId of modulosIds) {
-      const todosHabilitados = usersConMateria.every((userDoc) => {
-        const mh = userDoc.data()?.modulos_habilitados || {};
-        return mh[moduleId] === true;
-      });
-      estado[moduleId] = todosHabilitados;
+      const doc = await modulosEstadoRef.doc(moduleId).get();
+      estado[moduleId] = doc.exists ? (doc.data()?.enabledGlobal === true) : false;
     }
     return res.json({ modulos_habilitados_estado: estado });
   } catch (err) {
