@@ -289,6 +289,40 @@ export const toggleMateriaStatus = async (
   }
 };
 
+export const getModulosEstadoByMateria = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const materiaDoc = await materiasCollection.doc(id).get();
+    if (!materiaDoc.exists) {
+      return res.status(404).json({ error: "Materia no encontrada" });
+    }
+
+    const materiaData = materiaDoc.data();
+    const moduloIds: string[] = materiaData?.modulos || [];
+
+    if (moduloIds.length === 0) {
+      return res.json([]);
+    }
+
+    const modulos = [];
+    for (const moduloId of moduloIds) {
+      const moduloDoc = await modulosCollection.doc(moduloId).get();
+      if (moduloDoc.exists) {
+        modulos.push({
+          id: moduloDoc.id,
+          ...moduloDoc.data(),
+        });
+      }
+    }
+
+    return res.json(modulos);
+  } catch (err) {
+    console.error("getModulosEstadoByMateria error:", err);
+    return res.status(500).json({ error: "Error al obtener módulos de la materia" });
+  }
+};
+
 export const deleteMateria = async (
   req: AuthenticatedRequest,
   res: Response
