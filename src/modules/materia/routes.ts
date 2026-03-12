@@ -9,6 +9,7 @@ import {
   toggleMateriaStatus,
   toggleModuleForAllStudents,
   getModulosHabilitadosEstado,
+  getModulosEstadoByMateria,
 } from "./controller";
 import {
   authMiddleware,
@@ -78,6 +79,11 @@ const getModulosHabilitadosEstadoHandler = (
 
 // Rutas públicas
 router.get("/", getAllMaterias);
+
+// Rutas específicas deben ir ANTES de /:id
+router.get("/:id/modulos-habilitados-estado", getModulosEstadoByMateria);
+
+router.get("/:id", getMateriaById);
 
 // Rutas protegidas
 router.post(

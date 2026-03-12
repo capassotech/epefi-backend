@@ -146,7 +146,13 @@ export const ModuleSchema = z.object({
     .optional(),
   url_video: z
     .array(z.string())
-    .max(20, "No puede tener más de 20 cursos")
+    .max(20, "No puede tener más de 20 cursos"),
+  nombres_archivos: z
+    .string()
+    .optional(),
+  nombres_videos: z
+    .string()
+    .optional(),
 });
 
 export const UpdateUserSchema = z.object({
