@@ -522,37 +522,61 @@ export const getStudentModules = async (req: AuthenticatedRequest, res: Response
     const cursosAsignados = targetUserData?.cursos_asignados || [];
 
     try {
-      const moduloToMateria: Record<string, string> = {};
       const materiasCollection = firestore.collection('materias');
       const cursosCollection = firestore.collection('cursos');
 
-      for (const cursoId of cursosAsignados) {
-        const cursoDoc = await cursosCollection.doc(cursoId).get();
-        if (!cursoDoc.exists) continue;
-        const materiasIds = cursoDoc.data()?.materias || [];
-        for (const materiaId of materiasIds) {
-          const materiaDoc = await materiasCollection.doc(materiaId).get();
-          if (!materiaDoc.exists) continue;
-          const modulosIds = materiaDoc.data()?.modulos || [];
-          for (const moduleId of modulosIds) {
-            moduloToMateria[moduleId] = materiaId;
-          }
+      // Paso 1: obtener todos los cursos en paralelo
+      const cursoDocs = await Promise.all(
+        cursosAsignados.map((cursoId: string) => cursosCollection.doc(cursoId).get())
+      );
+
+      // Paso 2: recolectar IDs de materias sin duplicados
+      const materiaIds = [
+        ...new Set(
+          cursoDocs.flatMap((doc) => (doc.exists ? (doc.data()?.materias || []) : []))
+        ),
+      ];
+
+      // Paso 3: obtener todas las materias en paralelo
+      const materiaDocs = await Promise.all(
+        materiaIds.map((materiaId: string) => materiasCollection.doc(materiaId).get())
+      );
+
+      // Paso 4: construir mapa moduloId → materiaId y primer módulo por materia (para materias sin modulos_estado)
+      const moduloToMateria: Record<string, string> = {};
+      const firstModuleIdPerMateria: Record<string, string> = {};
+      for (const materiaDoc of materiaDocs) {
+        if (!materiaDoc.exists) continue;
+        const modulosIds: string[] = materiaDoc.data()?.modulos || [];
+        if (modulosIds.length > 0) firstModuleIdPerMateria[materiaDoc.id] = modulosIds[0];
+        for (const moduleId of modulosIds) {
+          moduloToMateria[moduleId] = materiaDoc.id;
         }
       }
 
-      const modulosHabilitados: Record<string, boolean> = { ...overrides };
+      // Paso 5: leer modulos_estado en paralelo solo para módulos sin override individual
+      const nonOverriddenEntries = Object.entries(moduloToMateria).filter(
+        ([moduleId]) => !(moduleId in overrides)
+      );
 
-      for (const [moduleId, materiaId] of Object.entries(moduloToMateria)) {
-        if (moduleId in overrides) {
-          modulosHabilitados[moduleId] = overrides[moduleId];
-        } else {
-          const doc = await materiasCollection
+      const estadoDocs = await Promise.all(
+        nonOverriddenEntries.map(([moduleId, materiaId]) =>
+          materiasCollection
             .doc(materiaId)
             .collection('modulos_estado')
             .doc(moduleId)
-            .get();
-          modulosHabilitados[moduleId] = doc.exists ? (doc.data()?.enabledGlobal === true) : false;
-        }
+            .get()
+        )
+      );
+
+      // Paso 6: construir resultado final. Si no hay doc (materia antigua), primer módulo = true, resto = false.
+      const modulosHabilitados: Record<string, boolean> = { ...overrides };
+
+      for (let i = 0; i < nonOverriddenEntries.length; i++) {
+        const [moduleId, materiaId] = nonOverriddenEntries[i];
+        const doc = estadoDocs[i];
+        const defaultValue = firstModuleIdPerMateria[materiaId] === moduleId;
+        modulosHabilitados[moduleId] = doc.exists ? (doc.data()?.enabledGlobal === true) : defaultValue;
       }
 
       return res.status(200).json({ modulos_habilitados: modulosHabilitados });

@@ -21,13 +21,16 @@ const cursosCollection = firestore.collection("cursos");
 async function syncModulosEstado(materiaId: string, modulosIds: string[]): Promise<void> {
   if (modulosIds.length === 0) return;
   const modulosEstadoRef = materiasCollection.doc(materiaId).collection("modulos_estado");
-  for (let i = 0; i < modulosIds.length; i++) {
-    const moduleId = modulosIds[i];
-    const doc = await modulosEstadoRef.doc(moduleId).get();
-    if (!doc.exists) {
-      await modulosEstadoRef.doc(moduleId).set({ enabledGlobal: i === 0 });
-    }
-  }
+  // Leer todos los docs existentes en paralelo
+  const docs = await Promise.all(modulosIds.map((id) => modulosEstadoRef.doc(id).get()));
+  // Crear solo los que no existen, en paralelo
+  await Promise.all(
+    docs.map((doc, i) => {
+      if (!doc.exists) {
+        return modulosEstadoRef.doc(modulosIds[i]).set({ enabledGlobal: i === 0 });
+      }
+    })
+  );
 }
 
 export const getAllMaterias = async (_: Request, res: Response) => {
@@ -400,9 +403,47 @@ export const toggleModuleForAllStudents = async (
       .doc(moduleId)
       .set({ enabledGlobal: enabled }, { merge: true });
 
+    // Limpiar overrides individuales de todos los usuarios con esta materia.
+    // Esto asegura que el estado global tome efecto para todos (incluyendo usuarios
+    // con datos viejos en modulos_habilitados), sin necesidad de migración manual.
+    const cursosConMateria = await cursosCollection
+      .where("materias", "array-contains", materiaId)
+      .get();
+
+    let updatedUsers = 0;
+
+    if (!cursosConMateria.empty) {
+      const cursoIds = cursosConMateria.docs.map((d) => d.id);
+      const usersCollection = firestore.collection("users");
+      const allUsers = await usersCollection.get();
+
+      const usersWithOverride = allUsers.docs.filter((userDoc) => {
+        const userData = userDoc.data();
+        const cursosAsignados: string[] = userData?.cursos_asignados || [];
+        const hasRelevantCourse = cursoIds.some((cid) => cursosAsignados.includes(cid));
+        // Solo actualizar usuarios que tengan un override explícito para este módulo
+        return hasRelevantCourse && userData?.modulos_habilitados && moduleId in userData.modulos_habilitados;
+      });
+
+      if (usersWithOverride.length > 0) {
+        const BATCH_SIZE = 500;
+        for (let i = 0; i < usersWithOverride.length; i += BATCH_SIZE) {
+          const batch = firestore.batch();
+          const chunk = usersWithOverride.slice(i, i + BATCH_SIZE);
+          for (const userDoc of chunk) {
+            batch.update(userDoc.ref, {
+              [`modulos_habilitados.${moduleId}`]: FieldValue.delete(),
+            });
+          }
+          await batch.commit();
+        }
+        updatedUsers = usersWithOverride.length;
+      }
+    }
+
     return res.json({
       message: `Módulo ${enabled ? 'habilitado' : 'deshabilitado'} exitosamente para todos los estudiantes con esta materia`,
-      updatedUsers: 0,
+      updatedUsers,
       materiaId,
       moduleId,
       enabled,
@@ -445,10 +486,13 @@ export const getModulosHabilitadosEstado = async (
       .doc(materiaId)
       .collection("modulos_estado");
 
+    // Leer todos los estados en paralelo. Si no existe doc (materia antigua), primer módulo = true, resto = false.
+    const docs = await Promise.all(modulosIds.map((moduleId) => modulosEstadoRef.doc(moduleId).get()));
     const estado: Record<string, boolean> = {};
-    for (const moduleId of modulosIds) {
-      const doc = await modulosEstadoRef.doc(moduleId).get();
-      estado[moduleId] = doc.exists ? (doc.data()?.enabledGlobal === true) : false;
+    for (let i = 0; i < modulosIds.length; i++) {
+      const doc = docs[i];
+      const defaultValue = i === 0; // primer módulo habilitado por defecto
+      estado[modulosIds[i]] = doc.exists ? (doc.data()?.enabledGlobal === true) : defaultValue;
     }
     return res.json({ modulos_habilitados_estado: estado });
   } catch (err) {
