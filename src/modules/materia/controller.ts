@@ -534,3 +534,88 @@ export const getModulosHabilitadosEstado = async (
     return res.status(500).json({ error: "Error al obtener estado de módulos" });
   }
 };
+
+const usersCollection = firestore.collection("users");
+
+/**
+ * Devuelve los estudiantes que NO tienen un módulo habilitado.
+ * Para módulos deshabilitados globalmente: todos los estudiantes con la materia.
+ * Para módulos habilitados globalmente: solo los que tienen override explícito a false.
+ */
+export const getModuloExcepciones = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  const isAuthorized = await validateUser(req);
+  if (!isAuthorized) {
+    return res.status(403).json({ error: "No autorizado. Se requieren permisos de administrador." });
+  }
+
+  try {
+    const { id: materiaId } = req.params;
+    const materiaDoc = await materiasCollection.doc(materiaId).get();
+    if (!materiaDoc.exists) {
+      return res.status(404).json({ error: "Materia no encontrada" });
+    }
+
+    const materiaData = materiaDoc.data() || {};
+    const modulosIds: string[] = materiaData.modulos || [];
+    const excepciones: Record<string, Array<{ id: string; nombre: string }>> = {};
+    for (const mid of modulosIds) excepciones[mid] = [];
+
+    if (modulosIds.length === 0) {
+      return res.json({ excepciones, totalStudentsWithMateria: 0 });
+    }
+
+    // Estado global por módulo
+    const modulosEstadoRef = materiasCollection.doc(materiaId).collection("modulos_estado");
+    const docs = await Promise.all(modulosIds.map((id) => modulosEstadoRef.doc(id).get()));
+    const enabledGlobal: Record<string, boolean> = {};
+    for (let i = 0; i < modulosIds.length; i++) {
+      const doc = docs[i];
+      enabledGlobal[modulosIds[i]] = doc.exists ? (doc.data()?.enabledGlobal === true) : i === 0;
+    }
+
+    const idCursosFromMateria: string[] = materiaData.id_cursos || [];
+
+    const cursosConMateria = await cursosCollection
+      .where("materias", "array-contains", materiaId)
+      .get();
+    const cursoIdsFromQuery = cursosConMateria.docs.map((d) => d.id);
+    const cursoIds = [...new Set([...cursoIdsFromQuery, ...idCursosFromMateria])];
+
+    if (cursoIds.length === 0) {
+      return res.json({ excepciones, totalStudentsWithMateria: 0 });
+    }
+
+    const usersSnapshot = await usersCollection.get();
+    const studentsWithMateria = usersSnapshot.docs.filter((userDoc) => {
+      const cursosAsignados: string[] = userDoc.data()?.cursos_asignados || [];
+      return cursoIds.some((cid) => cursosAsignados.includes(cid));
+    });
+
+    for (const userDoc of studentsWithMateria) {
+      const userData = userDoc.data();
+      const overrides: Record<string, boolean> = userData?.modulos_habilitados || {};
+      const nombre = [userData?.nombre, userData?.apellido].filter(Boolean).join(" ").trim() || "Sin nombre";
+
+      for (const moduleId of modulosIds) {
+        const hasOverride = moduleId in overrides;
+        const valor = hasOverride
+          ? overrides[moduleId] === true
+          : enabledGlobal[moduleId];
+        if (!valor) {
+          excepciones[moduleId].push({ id: userDoc.id, nombre });
+        }
+      }
+    }
+
+    return res.json({
+      excepciones,
+      totalStudentsWithMateria: studentsWithMateria.length,
+    });
+  } catch (err) {
+    console.error("getModuloExcepciones error:", err);
+    return res.status(500).json({ error: "Error al obtener excepciones" });
+  }
+};

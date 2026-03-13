@@ -9,7 +9,7 @@ import {
   toggleMateriaStatus,
   toggleModuleForAllStudents,
   getModulosHabilitadosEstado,
-  getModulosEstadoByMateria,
+  getModuloExcepciones,
 } from "./controller";
 import {
   authMiddleware,
@@ -17,7 +17,6 @@ import {
 } from "../../middleware/authMiddleware";
 import {
   validateBody,
-  validateMultiple,
   validateParams,
   basicSanitization,
 } from "../../middleware/zodValidation";
@@ -77,11 +76,19 @@ const getModulosHabilitadosEstadoHandler = (
   return getModulosHabilitadosEstado(req as AuthenticatedRequest, res);
 };
 
+const getModuloExcepcionesHandler = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  return getModuloExcepciones(req as AuthenticatedRequest, res);
+};
+
 // Rutas públicas
 router.get("/", getAllMaterias);
 
 // Rutas específicas deben ir ANTES de /:id
-router.get("/:id/modulos-habilitados-estado", getModulosEstadoByMateria);
+router.get("/:id/modulos-habilitados-estado", authMiddleware, validateParams(IdParamSchema), getModulosHabilitadosEstadoHandler);
 
 router.get("/:id", getMateriaById);
 
@@ -110,16 +117,12 @@ router.patch(
 // Ruta para alternar estado (debe ir antes de /:id para evitar conflictos)
 router.patch("/:id/toggle-status", authMiddleware, toggleMateriaStatusHandler);
 
-// Estado de módulos habilitados desde la BD (usuarios con esta materia)
 router.get(
-  "/:id/modulos-habilitados-estado",
+  "/:id/modulos-excepciones",
   authMiddleware,
   validateParams(IdParamSchema),
-  getModulosHabilitadosEstadoHandler
+  getModuloExcepcionesHandler
 );
-
-// Rutas genéricas con :id (deben ir al final)
-router.get("/:id", getMateriaById);
 
 router.put(
   "/:id",
