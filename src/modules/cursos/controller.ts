@@ -11,17 +11,32 @@ import { validateUser, formatFirestoreDoc } from "../../utils/utils";
 const cursosCollection = firestore.collection("cursos");
 const materiasCollection = firestore.collection("materias");
 
-export const getAllCourses = async (_: Request, res: Response) => {
+export const getAllCourses = async (req: Request, res: Response) => {
   try {
-    const snapshot = await cursosCollection.get();
+    const pageParam = Number.parseInt(req.query.page as string, 10);
+    const limitParam = Number.parseInt(req.query.limit as string, 10);
+    const page = Number.isNaN(pageParam) ? 1 : Math.max(pageParam, 1);
+    const perPage = Number.isNaN(limitParam) ? 10 : Math.max(limitParam, 1);
 
-    if (snapshot.empty) {
-      return res.json([]);
-    }
+    const snapshot = await cursosCollection.get();
 
     const courses = snapshot.docs.map((doc) => formatFirestoreDoc(doc));
 
-    return res.json(courses);
+    const total = courses.length;
+    const start = (page - 1) * perPage;
+    const paginatedCourses = courses.slice(start, start + perPage);
+    const totalPages = total === 0 ? 0 : Math.ceil(total / perPage);
+
+    return res.json({
+      data: paginatedCourses,
+      pagination: {
+        total,
+        page,
+        perPage,
+        count: paginatedCourses.length,
+        totalPages,
+      },
+    });
   } catch (err) {
     console.error("getAllCourses error:", err);
     return res.status(500).json({ error: "Error al obtener cursos" });

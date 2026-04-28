@@ -65,6 +65,11 @@ export const getUsers = async (req: AuthenticatedRequest, res: Response) => {
       });
     }
 
+    const pageParam = Number.parseInt(req.query.page as string, 10);
+    const limitParam = Number.parseInt(req.query.limit as string, 10);
+    const page = Number.isNaN(pageParam) ? 1 : Math.max(pageParam, 1);
+    const perPage = Number.isNaN(limitParam) ? 10 : Math.max(limitParam, 1);
+
     const userDocs = await firestore.collection('users').get();
 
     const users = userDocs.docs.map(doc => ({
@@ -72,9 +77,23 @@ export const getUsers = async (req: AuthenticatedRequest, res: Response) => {
       ...doc.data()
     }));
 
+    const total = users.length;
+    const start = (page - 1) * perPage;
+    const paginatedUsers = users.slice(start, start + perPage);
+    const totalPages = total === 0 ? 0 : Math.ceil(total / perPage);
+
     console.log(`Found ${users.length} registered users`);
 
-    return res.json(users);
+    return res.json({
+      data: paginatedUsers,
+      pagination: {
+        total,
+        page,
+        perPage,
+        count: paginatedUsers.length,
+        totalPages
+      }
+    });
   } catch (error) {
     console.error('Error fetching registered users:', error);
     return res.status(500).json({ error: 'Error interno del servidor' });
