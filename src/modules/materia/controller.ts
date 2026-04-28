@@ -33,25 +33,39 @@ async function syncModulosEstado(materiaId: string, modulosIds: string[]): Promi
   );
 }
 
-export const getAllMaterias = async (_: Request, res: Response) => {
+export const getAllMaterias = async (req: Request, res: Response) => {
   try {
-    const snapshot = await materiasCollection.get();
+    const pageParam = Number.parseInt(req.query.page as string, 10);
+    const limitParam = Number.parseInt(req.query.limit as string, 10);
+    const page = Number.isNaN(pageParam) ? 1 : Math.max(pageParam, 1);
+    const perPage = Number.isNaN(limitParam) ? 10 : Math.max(limitParam, 1);
 
-    if (snapshot.empty) {
-      return res.json([]);
-    }
+    const snapshot = await materiasCollection.get();
 
     const materias = snapshot.docs.map((doc) => {
       const data = doc.data();
       return {
         id: doc.id,
         ...data,
-        // Si no existe el campo activo, asumir que está activo (true) por defecto
         activo: data.activo !== undefined ? data.activo : true,
       };
     });
 
-    return res.json(materias);
+    const total = materias.length;
+    const start = (page - 1) * perPage;
+    const paginatedMaterias = materias.slice(start, start + perPage);
+    const totalPages = total === 0 ? 0 : Math.ceil(total / perPage);
+
+    return res.json({
+      data: paginatedMaterias,
+      pagination: {
+        total,
+        page,
+        perPage,
+        count: paginatedMaterias.length,
+        totalPages,
+      },
+    });
   } catch (err) {
     console.error("getAllMaterias error:", err);
     return res.status(500).json({ error: "Error al obtener materias" });
