@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  isValidPassword,
+  PASSWORD_POLICY_MESSAGE,
+} from "../utils/passwordValidator";
 
 enum TipoContenido {
   VIDEO = "video",
@@ -30,7 +34,13 @@ export const UserSchema = z.object({
   email: z.string().email("El email del usuario es obligatorio"),
   nombre: z.string().min(1, "El nombre del usuario es obligatorio"),
   apellido: z.string().min(1, "El apellido del usuario es obligatorio"),
-  password: z.string().min(1, "La contraseña del usuario es obligatoria"),
+  password: z
+    .string()
+    .min(1, "La contraseña del usuario es obligatoria")
+    .max(128, "La contraseña no puede exceder 128 caracteres")
+    .refine((value) => isValidPassword(value), {
+      message: PASSWORD_POLICY_MESSAGE,
+    }),
   dni: z.string().min(1, "El DNI del usuario es obligatorio"),
   role: z.object({
     admin: z.boolean(),
@@ -155,23 +165,39 @@ export const ModuleSchema = z.object({
     .optional(),
 });
 
-export const UpdateUserSchema = z.object({
-  uid: z.string().optional(),
-  email: z.string().email("El email del usuario es obligatorio").optional(),
-  nombre: z.string().min(1, "El nombre del usuario es obligatorio").optional(),
-  apellido: z.string().min(1, "El apellido del usuario es obligatorio").optional(),
-  password: z.string().min(1, "La contraseña del usuario es obligatoria").optional(),
-  dni: z.string().optional(), // Permitir DNI vacío o opcional para usuarios de Google
-  role: z.object({
-    admin: z.boolean(),
-    student: z.boolean(),
-  }).optional(),
-  activo: z.boolean().optional(),
-  cursos_asignados: z.array(z.string()).optional(),
-  emailVerificado: z.boolean().optional(),
-  modulos_habilitados: z.record(z.string(), z.boolean()).optional(), // Record<string, boolean>
-  progreso: z.record(z.string(), z.record(z.string(), z.boolean())).optional(), // Record<string, Record<string, boolean>>
-});
+export const UpdateUserSchema = z
+  .object({
+    uid: z.string().optional(),
+    email: z.string().email("El email del usuario es obligatorio").optional(),
+    nombre: z.string().min(1, "El nombre del usuario es obligatorio").optional(),
+    apellido: z.string().min(1, "El apellido del usuario es obligatorio").optional(),
+    password: z
+      .string()
+      .max(128, "La contraseña no puede exceder 128 caracteres")
+      .optional(),
+    dni: z.string().optional(), // Permitir DNI vacío o opcional para usuarios de Google
+    role: z
+      .object({
+        admin: z.boolean(),
+        student: z.boolean(),
+      })
+      .optional(),
+    activo: z.boolean().optional(),
+    cursos_asignados: z.array(z.string()).optional(),
+    emailVerificado: z.boolean().optional(),
+    modulos_habilitados: z.record(z.string(), z.boolean()).optional(), // Record<string, boolean>
+    progreso: z.record(z.string(), z.record(z.string(), z.boolean())).optional(), // Record<string, Record<string, boolean>>
+  })
+  .superRefine((data, ctx) => {
+    if (!data.password) return;
+    if (!isValidPassword(data.password)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["password"],
+        message: PASSWORD_POLICY_MESSAGE,
+      });
+    }
+  });
 
 export const UpdateProfileSchema = z.object({
   nombre: z.string().min(1, "El nombre del usuario es obligatorio").trim().optional(),
