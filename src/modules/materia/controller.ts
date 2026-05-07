@@ -39,6 +39,10 @@ export const getAllMaterias = async (req: Request, res: Response) => {
     const limitParam = Number.parseInt(req.query.limit as string, 10);
     const page = Number.isNaN(pageParam) ? 1 : Math.max(pageParam, 1);
     const perPage = Number.isNaN(limitParam) ? 10 : Math.max(limitParam, 1);
+    const search = ((req.query.search as string) || "").trim().toLowerCase();
+    const status = ((req.query.status as string) || "").trim().toLowerCase();
+    const sortBy = ((req.query.sortBy as string) || "titulo").trim();
+    const sortOrder = ((req.query.sortOrder as string) || "asc").trim().toLowerCase() === "desc" ? "desc" : "asc";
 
     const snapshot = await materiasCollection.get();
 
@@ -51,9 +55,38 @@ export const getAllMaterias = async (req: Request, res: Response) => {
       };
     });
 
-    const total = materias.length;
+    const filteredMaterias = materias
+      .filter((materia: any) => {
+        if (!search) return true;
+        const title = (materia?.nombre || materia?.titulo || "").toString().toLowerCase();
+        return title.includes(search);
+      })
+      .filter((materia: any) => {
+        if (!status) return true;
+        if (status !== "activo" && status !== "inactivo") return true;
+        const isActive = materia?.activo !== undefined ? materia.activo === true : true;
+        return status === "activo" ? isActive : !isActive;
+      })
+      .sort((a: any, b: any) => {
+        let aValue: string | number = "";
+        let bValue: string | number = "";
+
+        if (sortBy === "estado") {
+          aValue = a?.activo === true ? 1 : 0;
+          bValue = b?.activo === true ? 1 : 0;
+        } else {
+          aValue = (a?.nombre || a?.titulo || "").toString().toLowerCase();
+          bValue = (b?.nombre || b?.titulo || "").toString().toLowerCase();
+        }
+
+        if (aValue < bValue) return sortOrder === "asc" ? -1 : 1;
+        if (aValue > bValue) return sortOrder === "asc" ? 1 : -1;
+        return 0;
+      });
+
+    const total = filteredMaterias.length;
     const start = (page - 1) * perPage;
-    const paginatedMaterias = materias.slice(start, start + perPage);
+    const paginatedMaterias = filteredMaterias.slice(start, start + perPage);
     const totalPages = total === 0 ? 0 : Math.ceil(total / perPage);
 
     return res.json({

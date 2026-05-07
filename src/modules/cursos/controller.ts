@@ -17,14 +17,55 @@ export const getAllCourses = async (req: Request, res: Response) => {
     const limitParam = Number.parseInt(req.query.limit as string, 10);
     const page = Number.isNaN(pageParam) ? 1 : Math.max(pageParam, 1);
     const perPage = Number.isNaN(limitParam) ? 10 : Math.max(limitParam, 1);
+    const search = ((req.query.search as string) || "").trim().toLowerCase();
+    const status = ((req.query.status as string) || "").trim().toLowerCase();
+    const sortBy = ((req.query.sortBy as string) || "fechaCreacion").trim();
+    const sortOrder = ((req.query.sortOrder as string) || "desc").trim().toLowerCase() === "asc" ? "asc" : "desc";
 
     const snapshot = await cursosCollection.get();
 
     const courses = snapshot.docs.map((doc) => formatFirestoreDoc(doc));
 
-    const total = courses.length;
+    const filteredCourses = courses
+      .filter((course: any) => {
+        if (!search) return true;
+        const title = (course?.titulo || "").toString().toLowerCase();
+        return title.includes(search);
+      })
+      .filter((course: any) => {
+        if (!status) return true;
+        if (status !== "activo" && status !== "inactivo") return true;
+        const courseStatus = (course?.estado || "activo").toString().toLowerCase();
+        return courseStatus === status;
+      })
+      .sort((a: any, b: any) => {
+        let aValue: string | number = "";
+        let bValue: string | number = "";
+
+        if (sortBy === "titulo") {
+          aValue = (a?.titulo || "").toString().toLowerCase();
+          bValue = (b?.titulo || "").toString().toLowerCase();
+        } else if (sortBy === "precio") {
+          aValue = typeof a?.precio === "number" ? a.precio : Number(a?.precio || 0);
+          bValue = typeof b?.precio === "number" ? b.precio : Number(b?.precio || 0);
+        } else if (sortBy === "estudiantes") {
+          const aStudents = Array.isArray(a?.estudiantes) ? a.estudiantes.length : Number(a?.estudiantes || 0);
+          const bStudents = Array.isArray(b?.estudiantes) ? b.estudiantes.length : Number(b?.estudiantes || 0);
+          aValue = Number.isNaN(aStudents) ? 0 : aStudents;
+          bValue = Number.isNaN(bStudents) ? 0 : bStudents;
+        } else {
+          aValue = a?.fechaCreacion ? new Date(a.fechaCreacion).getTime() : 0;
+          bValue = b?.fechaCreacion ? new Date(b.fechaCreacion).getTime() : 0;
+        }
+
+        if (aValue < bValue) return sortOrder === "asc" ? -1 : 1;
+        if (aValue > bValue) return sortOrder === "asc" ? 1 : -1;
+        return 0;
+      });
+
+    const total = filteredCourses.length;
     const start = (page - 1) * perPage;
-    const paginatedCourses = courses.slice(start, start + perPage);
+    const paginatedCourses = filteredCourses.slice(start, start + perPage);
     const totalPages = total === 0 ? 0 : Math.ceil(total / perPage);
 
     return res.json({
