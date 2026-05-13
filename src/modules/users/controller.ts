@@ -65,6 +65,16 @@ export const getUsers = async (req: AuthenticatedRequest, res: Response) => {
       });
     }
 
+    const pageParam = Number.parseInt(req.query.page as string, 10);
+    const limitParam = Number.parseInt(req.query.limit as string, 10);
+    const page = Number.isNaN(pageParam) ? 1 : Math.max(pageParam, 1);
+    const perPage = Number.isNaN(limitParam) ? 10 : Math.max(limitParam, 1);
+    const search = ((req.query.search as string) || "").trim().toLowerCase();
+    const status = ((req.query.status as string) || "").trim().toLowerCase();
+    const role = ((req.query.role as string) || "").trim().toLowerCase();
+    const sortBy = ((req.query.sortBy as string) || "fechaRegistro").trim();
+    const sortOrder = ((req.query.sortOrder as string) || "desc").trim().toLowerCase() === "asc" ? "asc" : "desc";
+
     const userDocs = await firestore.collection('users').get();
 
     const users = userDocs.docs.map(doc => ({
@@ -72,9 +82,64 @@ export const getUsers = async (req: AuthenticatedRequest, res: Response) => {
       ...doc.data()
     }));
 
+    const filteredUsers = users
+      .filter((user: any) => {
+        if (!search) return true;
+        const nombre = (user?.nombre || "").toString().toLowerCase();
+        const apellido = (user?.apellido || "").toString().toLowerCase();
+        const email = (user?.email || "").toString().toLowerCase();
+        return nombre.includes(search) || apellido.includes(search) || email.includes(search);
+      })
+      .filter((user: any) => {
+        if (!status) return true;
+        if (status !== "activo" && status !== "inactivo") return true;
+        const isActive = user?.activo !== undefined ? user.activo === true : true;
+        return status === "activo" ? isActive : !isActive;
+      })
+      .filter((user: any) => {
+        if (!role) return true;
+        if (role !== "admin" && role !== "student") return true;
+        return user?.role?.[role] === true;
+      })
+      .sort((a: any, b: any) => {
+        let aValue: string | number = "";
+        let bValue: string | number = "";
+
+        if (sortBy === "nombre") {
+          aValue = `${a?.nombre || ""} ${a?.apellido || ""}`.trim().toLowerCase();
+          bValue = `${b?.nombre || ""} ${b?.apellido || ""}`.trim().toLowerCase();
+        } else if (sortBy === "email") {
+          aValue = (a?.email || "").toString().toLowerCase();
+          bValue = (b?.email || "").toString().toLowerCase();
+        } else {
+          const aDate = a?.fechaRegistro || a?.fechaCreacion || null;
+          const bDate = b?.fechaRegistro || b?.fechaCreacion || null;
+          aValue = aDate ? new Date(aDate).getTime() : 0;
+          bValue = bDate ? new Date(bDate).getTime() : 0;
+        }
+
+        if (aValue < bValue) return sortOrder === "asc" ? -1 : 1;
+        if (aValue > bValue) return sortOrder === "asc" ? 1 : -1;
+        return 0;
+      });
+
+    const total = filteredUsers.length;
+    const start = (page - 1) * perPage;
+    const paginatedUsers = filteredUsers.slice(start, start + perPage);
+    const totalPages = total === 0 ? 0 : Math.ceil(total / perPage);
+
     console.log(`Found ${users.length} registered users`);
 
-    return res.json(users);
+    return res.json({
+      data: paginatedUsers,
+      pagination: {
+        total,
+        page,
+        perPage,
+        count: paginatedUsers.length,
+        totalPages
+      }
+    });
   } catch (error) {
     console.error('Error fetching registered users:', error);
     return res.status(500).json({ error: 'Error interno del servidor' });
