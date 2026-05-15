@@ -3,6 +3,7 @@ import { firebaseAuth, firestore } from '../../config/firebase';
 import { ValidatedUpdateUser, ValidatedUser, ValidatedUpdateProfile } from '../../types/schemas';
 import { validateUser } from '../../utils/utils';
 import { AuthenticatedRequest } from '../../middleware/authMiddleware';
+import { getPasswordValidationErrors } from '../../utils/passwordValidator';
 
 export const getUserProfile = async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -156,6 +157,13 @@ export const createUser = async (req: AuthenticatedRequest, res: Response) => {
     }
 
     const { email, nombre, apellido, dni, role, activo, cursos_asignados, emailVerificado, password }: ValidatedUser = req.body;
+    const passwordErrors = getPasswordValidationErrors(password);
+    if (passwordErrors.length > 0) {
+      return res.status(400).json({
+        error: "Datos inválidos",
+        details: passwordErrors,
+      });
+    }
     
     if (cursos_asignados && cursos_asignados.length > 0) {
       for (const cursoId of cursos_asignados) {
@@ -285,7 +293,18 @@ export const updateUser = async (req: AuthenticatedRequest, res: Response) => {
               }
             }
           }
-          await altUserDocForUpdate.ref.update(updateData);
+          const { password, ...restUpdateData } = updateData;
+          if (password) {
+            const passwordErrors = getPasswordValidationErrors(password);
+            if (passwordErrors.length > 0) {
+              return res.status(400).json({
+                error: "Datos inválidos",
+                details: passwordErrors,
+              });
+            }
+            await firebaseAuth.updateUser(altCleanUid, { password });
+          }
+          await altUserDocForUpdate.ref.update(restUpdateData);
           const updatedDoc = await firestore.collection('users').doc(altCleanUid).get();
           return res.status(200).json({
             message: 'Usuario actualizado correctamente',
@@ -349,7 +368,19 @@ export const updateUser = async (req: AuthenticatedRequest, res: Response) => {
       }
     }
 
-    await userDoc.ref.update(updateData);
+    const { password, ...restUpdateData } = updateData;
+    if (password) {
+      const passwordErrors = getPasswordValidationErrors(password);
+      if (passwordErrors.length > 0) {
+        return res.status(400).json({
+          error: "Datos inválidos",
+          details: passwordErrors,
+        });
+      }
+      await firebaseAuth.updateUser(cleanUid, { password });
+    }
+
+    await userDoc.ref.update(restUpdateData);
 
     const updatedDoc = await firestore.collection('users').doc(cleanUid).get();
 

@@ -10,6 +10,7 @@ import {
   logout,
   verifyToken,
   forgotPassword,
+  resetPassword,
   changePassword,
   refreshToken,
   getIdToken,
@@ -28,6 +29,7 @@ import {
   forgotPasswordSchema,
   changePasswordSchema,
 } from "./validation";
+import { getPasswordValidationErrors } from "../../utils/passwordValidator";
 
 const router = Router();
 
@@ -79,6 +81,44 @@ router.post(
     next();
   },
   forgotPassword
+);
+
+/**
+ * @route   POST /api/auth/reset-password
+ * @desc    Confirmar restablecimiento de contraseña por código
+ * @access  Public
+ */
+router.post(
+  "/reset-password",
+  sanitizeInput,
+  (req: Request, res: Response, next) => {
+    const { oobCode, newPassword, confirmPassword } = req.body;
+    const errors: string[] = [];
+
+    if (!oobCode) errors.push("Código de restablecimiento requerido");
+    if (!newPassword) errors.push("Nueva contraseña requerida");
+    if (!confirmPassword) errors.push("Confirmación de contraseña requerida");
+
+    if (newPassword) {
+      errors.push(
+        ...getPasswordValidationErrors(newPassword, { required: false })
+      );
+    }
+
+    if (newPassword && confirmPassword && newPassword !== confirmPassword) {
+      errors.push("Las contraseñas no coinciden");
+    }
+
+    if (errors.length > 0) {
+      return res.status(400).json({
+        error: "Datos inválidos",
+        details: errors,
+      });
+    }
+
+    next();
+  },
+  resetPassword
 );
 
 /**
@@ -138,8 +178,10 @@ router.put(
     if (!newPassword) errors.push("Nueva contraseña requerida");
     if (!confirmPassword) errors.push("Confirmación de contraseña requerida");
 
-    if (newPassword && newPassword.length < 8) {
-      errors.push("La nueva contraseña debe tener al menos 8 caracteres");
+    if (newPassword) {
+      errors.push(
+        ...getPasswordValidationErrors(newPassword, { required: false })
+      );
     }
 
     if (newPassword && confirmPassword && newPassword !== confirmPassword) {

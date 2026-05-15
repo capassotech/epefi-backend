@@ -14,6 +14,10 @@ import {
   isValidDNI,
   handleControllerError,
 } from "../../utils/utils";
+import {
+  getPasswordValidationErrors,
+  PASSWORD_POLICY_MESSAGE,
+} from "../../utils/passwordValidator";
 
 const usersCollection = firestore.collection("users");
 
@@ -21,6 +25,13 @@ export const register = async (req: Request, res: Response) => {
   try {
     const { email, password, nombre, apellido, dni }: UserRegistrationData =
       req.body;
+    const passwordErrors = getPasswordValidationErrors(password);
+    if (passwordErrors.length > 0) {
+      return res.status(400).json({
+        error: "Datos de registro inválidos",
+        details: passwordErrors,
+      });
+    }
 
     // Verificar si el DNI ya existe
     const existingDniQuery = await firestore
@@ -375,6 +386,13 @@ export const changePassword = async (
   try {
     const { uid } = req.params;
     const { currentPassword, newPassword } = req.body;
+    const passwordErrors = getPasswordValidationErrors(newPassword);
+    if (passwordErrors.length > 0) {
+      return res.status(400).json({
+        error: "Datos inválidos",
+        details: passwordErrors,
+      });
+    }
 
     // Verificar permisos: solo admin o el mismo usuario
     if (req.user.uid !== uid && !(await validateUser(req))) {
@@ -411,6 +429,74 @@ export const changePassword = async (
 
     return res.status(500).json({
       error: "Error al cambiar contraseña",
+    });
+  }
+};
+
+export const resetPassword = async (req: Request, res: Response) => {
+  try {
+    const { oobCode, newPassword } = req.body as {
+      oobCode: string;
+      newPassword: string;
+    };
+
+    const passwordErrors = getPasswordValidationErrors(newPassword);
+    if (passwordErrors.length > 0) {
+      return res.status(400).json({
+        error: "Datos inválidos",
+        details: passwordErrors,
+      });
+    }
+
+    const firebaseWebAPIKey = process.env.FIREBASE_WEB_API_KEY;
+    if (!firebaseWebAPIKey) {
+      return res.status(500).json({
+        error: "Configuración de Firebase incompleta",
+      });
+    }
+
+    const response = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:resetPassword?key=${firebaseWebAPIKey}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          oobCode,
+          newPassword,
+        }),
+      }
+    );
+
+    const payload = (await response.json()) as {
+      error?: { message?: string };
+    };
+
+    if (!response.ok) {
+      const code = payload?.error?.message || "RESET_FAILED";
+      if (code === "INVALID_OOB_CODE" || code === "EXPIRED_OOB_CODE") {
+        return res.status(400).json({
+          error: "Código de restablecimiento inválido o expirado",
+        });
+      }
+      if (code === "WEAK_PASSWORD") {
+        return res.status(400).json({
+          error: PASSWORD_POLICY_MESSAGE,
+        });
+      }
+      return res.status(400).json({
+        error: "No se pudo restablecer la contraseña",
+      });
+    }
+
+    return res.status(200).json({
+      message: "Contraseña restablecida exitosamente",
+    });
+  } catch (error: any) {
+    console.error("Reset password error:", error);
+    return res.status(500).json({
+      error: "Error al restablecer la contraseña",
     });
   }
 };
