@@ -165,6 +165,41 @@ export const ModuleSchema = z.object({
     .optional(),
 });
 
+export const ExamenSchema = z.object({
+  titulo: z
+    .string()
+    .min(1, "El titulo es obligatorio")
+    .max(100, "El titulo no puede exceder 100 caracteres"),
+  idFormacion: z
+    .string()
+    .min(1, "El idFormacion es obligatorio")
+    .max(100, "El idFormacion no puede exceder 100 caracteres")
+    .trim(),
+  preguntas: z
+    .array(
+      z.object({
+        id: z.string().min(1, "El ID de la pregunta es obligatorio").trim(),
+        texto: z
+          .string()
+          .min(1, "El texto de la pregunta es obligatorio")
+          .trim(),
+        respuestas: z
+          .array(
+            z.object({
+              id: z.string().min(1, "El ID de la respuesta es obligatorio").trim(),
+              texto: z
+                .string()
+                .min(1, "El texto de la respuesta es obligatorio")
+                .trim(),
+              esCorrecta: z.boolean(),
+            })
+          )
+          .min(1, "Cada pregunta debe tener al menos una respuesta"),
+      })
+    )
+    .min(1, "El examen debe tener al menos una pregunta"),
+});
+
 export const UpdateUserSchema = z
   .object({
     uid: z.string().optional(),
@@ -209,6 +244,7 @@ export const UpdateProfileSchema = z.object({
 export const UpdateModuleSchema = ModuleSchema.partial();
 export const UpdateCourseSchema = CourseSchema.partial();
 export const UpdateMateriaSchema = MateriaSchema.partial();
+export const UpdateExamenSchema = ExamenSchema.partial();
 
 export type ValidatedUser = z.infer<typeof UserSchema>;
 export type ValidatedUpdateUser = z.infer<typeof UpdateUserSchema>;
@@ -219,6 +255,8 @@ export type ValidatedUpdateCourse = z.infer<typeof UpdateCourseSchema>;
 export type ValidatedCourse = z.infer<typeof CourseSchema>;
 export type ValidatedMateria = z.infer<typeof MateriaSchema>;
 export type ValidatedUpdateMateria = z.infer<typeof UpdateMateriaSchema>;
+export type ValidatedExamen = z.infer<typeof ExamenSchema>;
+export type ValidatedUpdateExamen = z.infer<typeof UpdateExamenSchema>;
 export interface Materia {
   id: string;
   nombre: string;
