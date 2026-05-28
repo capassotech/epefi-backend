@@ -10,6 +10,7 @@ import cursosRoutes from "./modules/cursos/routes";
 import usersRoutes from "./modules/users/routes";
 import materiasRoutes from "./modules/materia/routes";
 import modulosRoutes from "./modules/modulos/routes";
+import examenesRoutes from "./modules/examenes/routes";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -22,6 +23,7 @@ app.use("/api/cursos", cursosRoutes);
 app.use("/api/materias", materiasRoutes);
 app.use("/api/modulos", modulosRoutes);
 app.use("/api/usuarios", usersRoutes);
+app.use("/api/examenes", examenesRoutes);
 
 app.get("/", (_, res) => {
   res.json({
