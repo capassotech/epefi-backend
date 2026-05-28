@@ -165,40 +165,62 @@ export const ModuleSchema = z.object({
     .optional(),
 });
 
-export const ExamenSchema = z.object({
-  titulo: z
+const PreguntaExamenSchema = z.object({
+  id: z.string().min(1, "El ID de la pregunta es obligatorio").trim(),
+  texto: z
     .string()
-    .min(1, "El titulo es obligatorio")
-    .max(100, "El titulo no puede exceder 100 caracteres"),
-  idFormacion: z
-    .string()
-    .min(1, "El idFormacion es obligatorio")
-    .max(100, "El idFormacion no puede exceder 100 caracteres")
+    .min(1, "El texto de la pregunta es obligatorio")
     .trim(),
-  preguntas: z
+  respuestas: z
     .array(
       z.object({
-        id: z.string().min(1, "El ID de la pregunta es obligatorio").trim(),
+        id: z.string().min(1, "El ID de la respuesta es obligatorio").trim(),
         texto: z
           .string()
-          .min(1, "El texto de la pregunta es obligatorio")
+          .min(1, "El texto de la respuesta es obligatorio")
           .trim(),
-        respuestas: z
-          .array(
-            z.object({
-              id: z.string().min(1, "El ID de la respuesta es obligatorio").trim(),
-              texto: z
-                .string()
-                .min(1, "El texto de la respuesta es obligatorio")
-                .trim(),
-              esCorrecta: z.boolean(),
-            })
-          )
-          .min(1, "Cada pregunta debe tener al menos una respuesta"),
+        esCorrecta: z.boolean(),
       })
     )
-    .min(1, "El examen debe tener al menos una pregunta"),
+    .min(1, "Cada pregunta debe tener al menos una respuesta"),
 });
+
+const validateExamenRespuestasCorrectas = (
+  data: { preguntas: z.infer<typeof PreguntaExamenSchema>[] },
+  ctx: z.RefinementCtx
+) => {
+  data.preguntas.forEach((pregunta, index) => {
+    const tieneCorrecta = pregunta.respuestas.some(
+      (respuesta) => respuesta.esCorrecta === true
+    );
+    if (!tieneCorrecta) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["preguntas", index, "respuestas"],
+        message:
+          "Cada pregunta debe tener al menos una respuesta marcada como correcta",
+      });
+    }
+  });
+};
+
+export const ExamenSchema = z
+  .object({
+    titulo: z
+      .string()
+      .min(1, "El titulo es obligatorio")
+      .max(100, "El titulo no puede exceder 100 caracteres")
+      .trim(),
+    idFormacion: z
+      .string()
+      .min(1, "El idFormacion es obligatorio")
+      .max(100, "El idFormacion no puede exceder 100 caracteres")
+      .trim(),
+    preguntas: z
+      .array(PreguntaExamenSchema)
+      .min(1, "El examen debe tener al menos una pregunta"),
+  })
+  .superRefine(validateExamenRespuestasCorrectas);
 
 export const UpdateUserSchema = z
   .object({

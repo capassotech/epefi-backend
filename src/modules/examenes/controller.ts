@@ -1,11 +1,35 @@
-import { Request, Response } from "express";
+import { Response } from "express";
 import { firestore } from "../../config/firebase";
+import type { AuthenticatedRequest } from "../../middleware/authMiddleware";
 import { ValidatedExamen } from "../../types/schemas";
+import { formatFirestoreDoc, validateUser } from "../../utils/utils";
 
 const examenesCollection = firestore.collection("examenes");
+const cursosCollection = firestore.collection("cursos");
 
-export const getAllExamenes = async (req: Request, res: Response) => {
+const requireAdmin = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<boolean> => {
+  const isAuthorized = await validateUser(req);
+  if (!isAuthorized) {
+    res.status(403).json({
+      error: "No autorizado. Se requieren permisos de administrador.",
+    });
+    return false;
+  }
+  return true;
+};
+
+const verifyFormacionExists = async (idFormacion: string): Promise<boolean> => {
+  const cursoDoc = await cursosCollection.doc(idFormacion).get();
+  return cursoDoc.exists;
+};
+
+export const getAllExamenes = async (req: AuthenticatedRequest, res: Response) => {
   try {
+    if (!(await requireAdmin(req, res))) return;
+
     const idFormacion = (req.query.idFormacion as string | undefined)?.trim();
     const titulo = (req.query.titulo as string | undefined)?.trim().toLowerCase();
     const search = (req.query.search as string | undefined)?.trim().toLowerCase();
@@ -26,10 +50,7 @@ export const getAllExamenes = async (req: Request, res: Response) => {
       return res.json([]);
     }
 
-    let examenes = examenesSnapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
+    let examenes = examenesSnapshot.docs.map((doc) => formatFirestoreDoc(doc));
 
     if (titulo) {
       examenes = examenes.filter((examen: any) =>
@@ -78,9 +99,35 @@ export const getAllExamenes = async (req: Request, res: Response) => {
   }
 };
 
-export const createExamen = async (req: Request, res: Response) => {
+export const getExamenById = async (req: AuthenticatedRequest, res: Response) => {
   try {
+    if (!(await requireAdmin(req, res))) return;
+
+    const { id } = req.params;
+    const examenDoc = await examenesCollection.doc(id).get();
+
+    if (!examenDoc.exists) {
+      return res.status(404).json({ error: "Examen no encontrado" });
+    }
+
+    return res.json(formatFirestoreDoc(examenDoc));
+  } catch (error) {
+    console.error("getExamenById error:", error);
+    return res.status(500).json({ error: "Error al obtener examen" });
+  }
+};
+
+export const createExamen = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!(await requireAdmin(req, res))) return;
+
     const examenData: ValidatedExamen = req.body;
+
+    const formacionExists = await verifyFormacionExists(examenData.idFormacion);
+    if (!formacionExists) {
+      return res.status(404).json({ error: "Formación no encontrada" });
+    }
+
     const now = new Date();
     const examenToCreate = {
       ...examenData,
@@ -89,13 +136,72 @@ export const createExamen = async (req: Request, res: Response) => {
     };
 
     const nuevoExamen = await examenesCollection.add(examenToCreate);
+    const createdDoc = await nuevoExamen.get();
 
-    return res.status(201).json({
-      id: nuevoExamen.id,
-      ...examenToCreate,
-    });
+    return res.status(201).json(formatFirestoreDoc(createdDoc));
   } catch (error) {
     console.error("createExamen error:", error);
     return res.status(500).json({ error: "Error al crear examen" });
+  }
+};
+
+export const updateExamen = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!(await requireAdmin(req, res))) return;
+
+    const { id } = req.params;
+    const examenData: ValidatedExamen = req.body;
+
+    const examenDoc = await examenesCollection.doc(id).get();
+    if (!examenDoc.exists) {
+      return res.status(404).json({ error: "Examen no encontrado" });
+    }
+
+    const formacionExists = await verifyFormacionExists(examenData.idFormacion);
+    if (!formacionExists) {
+      return res.status(404).json({ error: "Formación no encontrada" });
+    }
+
+    const existingData = examenDoc.data();
+    const now = new Date();
+    const examenToUpdate = {
+      ...examenData,
+      fechaCreacion: existingData?.fechaCreacion ?? now,
+      fechaActualizacion: now,
+    };
+
+    await examenesCollection.doc(id).set(examenToUpdate);
+    const updatedDoc = await examenesCollection.doc(id).get();
+
+    return res.json({
+      message: "Examen actualizado correctamente",
+      ...formatFirestoreDoc(updatedDoc),
+    });
+  } catch (error) {
+    console.error("updateExamen error:", error);
+    return res.status(500).json({ error: "Error al actualizar examen" });
+  }
+};
+
+export const deleteExamen = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!(await requireAdmin(req, res))) return;
+
+    const { id } = req.params;
+    const examenDoc = await examenesCollection.doc(id).get();
+
+    if (!examenDoc.exists) {
+      return res.status(404).json({ error: "Examen no encontrado" });
+    }
+
+    await examenesCollection.doc(id).delete();
+
+    return res.json({
+      message: "Examen eliminado correctamente",
+      id,
+    });
+  } catch (error) {
+    console.error("deleteExamen error:", error);
+    return res.status(500).json({ error: "Error al eliminar examen" });
   }
 };
