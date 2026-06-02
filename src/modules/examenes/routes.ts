@@ -7,6 +7,10 @@ import {
   deleteExamen,
 } from "./controller";
 import {
+  getExamenEstadoFormacion,
+  getExamenParaAlumno,
+} from "./studentController";
+import {
   authMiddleware,
   AuthenticatedRequest,
 } from "../../middleware/authMiddleware";
@@ -37,6 +41,25 @@ const updateExamenHandler = (req: Request, res: Response) =>
 
 const deleteExamenHandler = (req: Request, res: Response) =>
   deleteExamen(req as AuthenticatedRequest, res);
+
+const getExamenEstadoFormacionHandler = (req: Request, res: Response) =>
+  getExamenEstadoFormacion(req as AuthenticatedRequest, res);
+
+const getExamenParaAlumnoHandler = (req: Request, res: Response) =>
+  getExamenParaAlumno(req as AuthenticatedRequest, res);
+
+// Rutas alumno (antes de /:id admin)
+router.get(
+  "/alumno/formacion/:idFormacion/estado",
+  authMiddleware,
+  getExamenEstadoFormacionHandler
+);
+
+router.get(
+  "/alumno/:idExamen",
+  authMiddleware,
+  getExamenParaAlumnoHandler
+);
 
 router.get("/", authMiddleware, getAllExamenesHandler);
 router.get("/:id", authMiddleware, validateParams(IdParamSchema), getExamenByIdHandler);

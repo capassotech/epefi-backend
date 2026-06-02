@@ -10,6 +10,7 @@ import {
   toggleModuleForAllStudents,
   getModulosHabilitadosEstado,
   getModuloExcepciones,
+  getModulosEstadoByMateria,
 } from "./controller";
 import {
   authMiddleware,
@@ -89,6 +90,7 @@ router.get("/", getAllMaterias);
 
 // Rutas específicas deben ir ANTES de /:id
 router.get("/:id/modulos-habilitados-estado", authMiddleware, validateParams(IdParamSchema), getModulosHabilitadosEstadoHandler);
+router.get("/:id/modulos", validateParams(IdParamSchema), getModulosEstadoByMateria);
 
 router.get("/:id", getMateriaById);
 
