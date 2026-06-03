@@ -268,6 +268,21 @@ export const UpdateCourseSchema = CourseSchema.partial();
 export const UpdateMateriaSchema = MateriaSchema.partial();
 export const UpdateExamenSchema = ExamenSchema.partial();
 
+export const SubmitExamenSchema = z.object({
+  idExamen: z.string().min(1, "El idExamen es obligatorio").trim(),
+  idFormacion: z.string().min(1, "El idFormacion es obligatorio").trim(),
+  respuestas: z
+    .array(
+      z.object({
+        idPregunta: z.string().min(1, "El idPregunta es obligatorio").trim(),
+        respuestasSeleccionadas: z
+          .array(z.string().min(1).trim())
+          .min(1, "Debés seleccionar al menos una respuesta"),
+      })
+    )
+    .min(1, "Debés enviar al menos una respuesta"),
+});
+
 export type ValidatedUser = z.infer<typeof UserSchema>;
 export type ValidatedUpdateUser = z.infer<typeof UpdateUserSchema>;
 export type ValidatedUpdateProfile = z.infer<typeof UpdateProfileSchema>;
@@ -279,6 +294,7 @@ export type ValidatedMateria = z.infer<typeof MateriaSchema>;
 export type ValidatedUpdateMateria = z.infer<typeof UpdateMateriaSchema>;
 export type ValidatedExamen = z.infer<typeof ExamenSchema>;
 export type ValidatedUpdateExamen = z.infer<typeof UpdateExamenSchema>;
+export type ValidatedSubmitExamen = z.infer<typeof SubmitExamenSchema>;
 export interface Materia {
   id: string;
   nombre: string;
