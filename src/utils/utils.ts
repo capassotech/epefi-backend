@@ -309,6 +309,100 @@ export const formatFirestoreDoc = (doc: any): any => {
   return formatted;
 };
 
+const CREATION_DATE_FIELDS = [
+  "fechaRegistro",
+  "fechaCreacion",
+  "fechaActualizacion",
+] as const;
+
+/**
+ * Obtiene milisegundos de una fecha de creación (Firestore Timestamp, Date, ISO string o número).
+ */
+export const getCreationDateMillis = (
+  record: Record<string, unknown>
+): number | null => {
+  for (const field of CREATION_DATE_FIELDS) {
+    const value = record[field];
+    if (value === null || value === undefined) continue;
+
+    if (typeof value === "number" && !Number.isNaN(value)) {
+      return value;
+    }
+
+    if (
+      value &&
+      typeof value === "object" &&
+      "toDate" in value &&
+      typeof (value as { toDate: () => Date }).toDate === "function"
+    ) {
+      const ms = (value as { toDate: () => Date }).toDate().getTime();
+      if (!Number.isNaN(ms)) return ms;
+      continue;
+    }
+
+    if (
+      value &&
+      typeof value === "object" &&
+      ("seconds" in value || "_seconds" in value)
+    ) {
+      const seconds =
+        (value as { seconds?: number; _seconds?: number }).seconds ??
+        (value as { _seconds?: number })._seconds;
+      if (typeof seconds === "number") {
+        const ms = seconds * 1000;
+        if (!Number.isNaN(ms)) return ms;
+      }
+      continue;
+    }
+
+    if (value instanceof Date) {
+      const ms = value.getTime();
+      if (!Number.isNaN(ms)) return ms;
+      continue;
+    }
+
+    const ms = new Date(value as string | number).getTime();
+    if (!Number.isNaN(ms)) return ms;
+  }
+
+  return null;
+};
+
+export const isCreationDateSortField = (sortBy: string): boolean => {
+  const normalized = sortBy.trim().toLowerCase();
+  return (
+    normalized === "fecharegistro" ||
+    normalized === "fechacreacion" ||
+    normalized === "fecha" ||
+    normalized === "createdat" ||
+    normalized.includes("fecha")
+  );
+};
+
+/**
+ * Compara dos registros por fecha de creación (DESC = más reciente primero).
+ */
+export const compareByCreationDate = (
+  a: Record<string, unknown>,
+  b: Record<string, unknown>,
+  sortOrder: "asc" | "desc"
+): number => {
+  const aMs = getCreationDateMillis(a);
+  const bMs = getCreationDateMillis(b);
+
+  const missing =
+    sortOrder === "asc" ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
+  const aSort = aMs ?? missing;
+  const bSort = bMs ?? missing;
+
+  if (aSort < bSort) return sortOrder === "asc" ? -1 : 1;
+  if (aSort > bSort) return sortOrder === "asc" ? 1 : -1;
+
+  const aId = String(a.id ?? "");
+  const bId = String(b.id ?? "");
+  return aId.localeCompare(bId);
+};
+
 /**
  * Manejo de errores estándar para controladores
  */

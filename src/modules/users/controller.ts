@@ -1,8 +1,17 @@
 import { Request, Response } from 'express';
 import { firebaseAuth, firestore } from '../../config/firebase';
 import { ValidatedUpdateUser, ValidatedUser, ValidatedUpdateProfile } from '../../types/schemas';
-import { validateUser } from '../../utils/utils';
+import {
+  validateUser,
+  formatFirestoreDoc,
+  compareByCreationDate,
+  isCreationDateSortField,
+} from '../../utils/utils';
 import { AuthenticatedRequest } from '../../middleware/authMiddleware';
+import {
+  getPasswordValidationErrors,
+  PASSWORD_POLICY_MESSAGE,
+} from '../../utils/passwordValidator';
 
 export const getUserProfile = async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -65,16 +74,85 @@ export const getUsers = async (req: AuthenticatedRequest, res: Response) => {
       });
     }
 
+    const pageParam = Number.parseInt(req.query.page as string, 10);
+    const limitParam = Number.parseInt(req.query.limit as string, 10);
+    const page = Number.isNaN(pageParam) ? 1 : Math.max(pageParam, 1);
+    const perPage = Number.isNaN(limitParam) ? 10 : Math.max(limitParam, 1);
+    const search = ((req.query.search as string) || "").trim().toLowerCase();
+    const status = ((req.query.status as string) || "").trim().toLowerCase();
+    const role = ((req.query.role as string) || "").trim().toLowerCase();
+    const sortBy = ((req.query.sortBy as string) || "fechaRegistro").trim();
+    const sortOrder = ((req.query.sortOrder as string) || "desc").trim().toLowerCase() === "asc" ? "asc" : "desc";
+
     const userDocs = await firestore.collection('users').get();
 
-    const users = userDocs.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
+    const users = userDocs.docs.map((doc) => formatFirestoreDoc(doc));
+
+    const filteredUsers = users
+      .filter((user: any) => {
+        if (!search) return true;
+        const nombre = (user?.nombre || "").toString().toLowerCase();
+        const apellido = (user?.apellido || "").toString().toLowerCase();
+        const email = (user?.email || "").toString().toLowerCase();
+        return nombre.includes(search) || apellido.includes(search) || email.includes(search);
+      })
+      .filter((user: any) => {
+        if (!status) return true;
+        if (status !== "activo" && status !== "inactivo") return true;
+        const isActive = user?.activo !== undefined ? user.activo === true : true;
+        return status === "activo" ? isActive : !isActive;
+      })
+      .filter((user: any) => {
+        if (!role) return true;
+        if (role !== "admin" && role !== "student") return true;
+        return user?.role?.[role] === true;
+      })
+      .sort((a: any, b: any) => {
+        if (sortBy === "nombre") {
+          const aValue = `${a?.nombre || ""} ${a?.apellido || ""}`
+            .trim()
+            .toLowerCase();
+          const bValue = `${b?.nombre || ""} ${b?.apellido || ""}`
+            .trim()
+            .toLowerCase();
+          if (aValue < bValue) return sortOrder === "asc" ? -1 : 1;
+          if (aValue > bValue) return sortOrder === "asc" ? 1 : -1;
+          return String(a.id ?? "").localeCompare(String(b.id ?? ""));
+        }
+
+        if (sortBy === "email") {
+          const aValue = (a?.email || "").toString().toLowerCase();
+          const bValue = (b?.email || "").toString().toLowerCase();
+          if (aValue < bValue) return sortOrder === "asc" ? -1 : 1;
+          if (aValue > bValue) return sortOrder === "asc" ? 1 : -1;
+          return String(a.id ?? "").localeCompare(String(b.id ?? ""));
+        }
+
+        // Por defecto y para sortBy de fecha (fechaRegistro, fechaCreacion, etc.)
+        if (isCreationDateSortField(sortBy) || sortBy === "fechaRegistro") {
+          return compareByCreationDate(a, b, sortOrder);
+        }
+
+        return compareByCreationDate(a, b, sortOrder);
+      });
+
+    const total = filteredUsers.length;
+    const start = (page - 1) * perPage;
+    const paginatedUsers = filteredUsers.slice(start, start + perPage);
+    const totalPages = total === 0 ? 0 : Math.ceil(total / perPage);
 
     console.log(`Found ${users.length} registered users`);
 
-    return res.json(users);
+    return res.json({
+      data: paginatedUsers,
+      pagination: {
+        total,
+        page,
+        perPage,
+        count: paginatedUsers.length,
+        totalPages
+      }
+    });
   } catch (error) {
     console.error('Error fetching registered users:', error);
     return res.status(500).json({ error: 'Error interno del servidor' });
@@ -91,6 +169,13 @@ export const createUser = async (req: AuthenticatedRequest, res: Response) => {
     }
 
     const { email, nombre, apellido, dni, role, activo, cursos_asignados, emailVerificado, password }: ValidatedUser = req.body;
+    const passwordErrors = getPasswordValidationErrors(password);
+    if (passwordErrors.length > 0) {
+      return res.status(400).json({
+        error: "Datos inválidos",
+        details: passwordErrors,
+      });
+    }
     
     if (cursos_asignados && cursos_asignados.length > 0) {
       for (const cursoId of cursos_asignados) {
@@ -117,20 +202,55 @@ export const createUser = async (req: AuthenticatedRequest, res: Response) => {
       password,
       displayName: `${nombre} ${apellido}`,
     });
-    
-    const userDoc = await firestore.collection("users").doc(userRecord.uid).set({ 
-      email, 
-      nombre, 
-      apellido, 
-      dni, 
-      role, 
-      activo, 
-      cursos_asignados, 
-      emailVerificado,
+
+    const now = new Date();
+    const userData = {
+      email,
+      nombre,
+      apellido,
+      dni,
+      role,
+      activo: activo ?? true,
+      cursos_asignados: cursos_asignados ?? [],
+      emailVerificado: emailVerificado ?? false,
+      fechaRegistro: now,
+      fechaActualizacion: now,
+    };
+
+    await firestore.collection("users").doc(userRecord.uid).set(userData);
+
+    return res.status(201).json({
+      message: "Usuario creado correctamente",
+      user: {
+        id: userRecord.uid,
+        uid: userRecord.uid,
+        ...userData,
+        fechaRegistro: now.toISOString(),
+        fechaActualizacion: now.toISOString(),
+      },
     });
-    return res.status(200).json({ message: "Usuario creado correctamente", user: userDoc });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error creating user:", error);
+
+    if (error.code === "auth/email-already-exists") {
+      return res.status(409).json({
+        error: "Ya existe un usuario registrado con este email",
+      });
+    }
+
+    if (error.code === "auth/invalid-email") {
+      return res.status(400).json({
+        error: "Formato de email inválido",
+      });
+    }
+
+    if (error.code === "auth/weak-password") {
+      return res.status(400).json({
+        error: PASSWORD_POLICY_MESSAGE,
+        details: [PASSWORD_POLICY_MESSAGE],
+      });
+    }
+
     return res.status(500).json({ error: "Error interno del servidor" });
   }
 };
@@ -220,7 +340,18 @@ export const updateUser = async (req: AuthenticatedRequest, res: Response) => {
               }
             }
           }
-          await altUserDocForUpdate.ref.update(updateData);
+          const { password, ...restUpdateData } = updateData;
+          if (password) {
+            const passwordErrors = getPasswordValidationErrors(password);
+            if (passwordErrors.length > 0) {
+              return res.status(400).json({
+                error: "Datos inválidos",
+                details: passwordErrors,
+              });
+            }
+            await firebaseAuth.updateUser(altCleanUid, { password });
+          }
+          await altUserDocForUpdate.ref.update(restUpdateData);
           const updatedDoc = await firestore.collection('users').doc(altCleanUid).get();
           return res.status(200).json({
             message: 'Usuario actualizado correctamente',
@@ -284,7 +415,19 @@ export const updateUser = async (req: AuthenticatedRequest, res: Response) => {
       }
     }
 
-    await userDoc.ref.update(updateData);
+    const { password, ...restUpdateData } = updateData;
+    if (password) {
+      const passwordErrors = getPasswordValidationErrors(password);
+      if (passwordErrors.length > 0) {
+        return res.status(400).json({
+          error: "Datos inválidos",
+          details: passwordErrors,
+        });
+      }
+      await firebaseAuth.updateUser(cleanUid, { password });
+    }
+
+    await userDoc.ref.update(restUpdateData);
 
     const updatedDoc = await firestore.collection('users').doc(cleanUid).get();
 
