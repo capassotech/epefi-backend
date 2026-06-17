@@ -129,15 +129,13 @@ export const getCoursesByUserId = async (req: AuthenticatedRequest, res: Respons
       return res.json([]);
     }
 
-    // Get all courses by its ids
-    const courses = [];
-    for (const curso_id of cursos_asignados) {
-      const doc = await cursosCollection.doc(curso_id).get();
-      // Si un curso no existe, simplemente lo omitimos en lugar de retornar error
-      if (doc.exists) {
-        courses.push(formatFirestoreDoc(doc));
-      }
-    }
+    // Get all courses by its ids in parallel
+    const courseDocs = await Promise.all(
+      cursos_asignados.map((id: string) => cursosCollection.doc(id).get())
+    );
+    const courses = courseDocs
+      .filter((doc) => doc.exists)
+      .map((doc) => formatFirestoreDoc(doc));
 
     console.log(`Retornando ${courses.length} cursos para el usuario`);
 
