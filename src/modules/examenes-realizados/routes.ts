@@ -7,6 +7,7 @@ import { validateBody, validateParams } from "../../middleware/zodValidation";
 import { SubmitExamenSchema } from "../../types/schemas";
 import { z } from "zod";
 import {
+  getMiExamenRealizadoDetalle,
   getMisIntentosExamen,
   submitExamenRealizado,
 } from "./controller";
@@ -26,6 +27,9 @@ const submitHandler = (req: Request, res: Response) =>
 
 const intentosHandler = (req: Request, res: Response) =>
   getMisIntentosExamen(req as AuthenticatedRequest, res);
+
+const alumnoDetalleHandler = (req: Request, res: Response) =>
+  getMiExamenRealizadoDetalle(req as AuthenticatedRequest, res);
 
 const listAdminHandler = (req: Request, res: Response) =>
   getExamenesRealizadosAdmin(req as AuthenticatedRequest, res);
@@ -50,6 +54,13 @@ router.get(
   "/alumno/examen/:idExamen/intentos",
   authMiddleware,
   intentosHandler
+);
+
+router.get(
+  "/alumno/intento/:id",
+  authMiddleware,
+  validateParams(IdParamSchema),
+  alumnoDetalleHandler
 );
 
 router.get("/", authMiddleware, listAdminHandler);

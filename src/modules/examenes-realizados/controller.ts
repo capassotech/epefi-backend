@@ -11,6 +11,7 @@ import {
   calculateExamenGrade,
   ExamenPregunta,
 } from "../../utils/examenScoring";
+import { buildExamenRealizadoDetalle } from "../../utils/examenesRealizadosService";
 
 const examenesCollection = firestore.collection("examenes");
 const examenesRealizadosCollection = firestore.collection("examenes_realizados");
@@ -186,6 +187,39 @@ export const submitExamenRealizado = async (
   } catch (error) {
     console.error("submitExamenRealizado error:", error);
     return res.status(500).json({ error: "Error al guardar el examen realizado" });
+  }
+};
+
+export const getMiExamenRealizadoDetalle = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    const uid = req.user.uid;
+    const { id } = req.params;
+
+    const detalle = await buildExamenRealizadoDetalle(id);
+    if (!detalle) {
+      return res.status(404).json({ error: "Registro no encontrado" });
+    }
+
+    if (detalle.idAlumno !== uid) {
+      return res.status(403).json({
+        error: "No tenés permiso para ver este examen realizado",
+      });
+    }
+
+    const {
+      emailAlumno: _emailAlumno,
+      dniAlumno: _dniAlumno,
+      nombreAlumno: _nombreAlumno,
+      ...studentDetalle
+    } = detalle;
+
+    return res.json(studentDetalle);
+  } catch (error) {
+    console.error("getMiExamenRealizadoDetalle error:", error);
+    return res.status(500).json({ error: "Error al obtener detalle del examen" });
   }
 };
 
