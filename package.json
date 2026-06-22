@@ -10,7 +10,7 @@
     "postinstall": "npm run build"
   },
   "engines": {
-    "node": ">=18.0.0",
+    "node": "22.22.x",
     "npm": ">=8.0.0"
   },
   "dependencies": {
