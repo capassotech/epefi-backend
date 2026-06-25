@@ -7,9 +7,18 @@ import type {
   ValidatedUpdateCourse
 } from "../../types/schemas";
 import { validateUser, formatFirestoreDoc } from "../../utils/utils";
+import {
+  studentHasFormationAssigned,
+} from "../../utils/formacionProgress";
+import {
+  buildStudentHomeCourses,
+  fetchStudentCourseContent,
+} from "../../utils/studentHomeService";
 
 const cursosCollection = firestore.collection("cursos");
 const materiasCollection = firestore.collection("materias");
+const modulosCollection = firestore.collection("modulos");
+const usersCollection = firestore.collection("users");
 
 export const getAllCourses = async (req: Request, res: Response) => {
   try {
@@ -143,6 +152,100 @@ export const getCoursesByUserId = async (req: AuthenticatedRequest, res: Respons
   } catch (err) {
     console.error("getCoursesByUserId error:", err);
     return res.status(500).json({ error: "Error al obtener cursos" });
+  }
+};
+
+export const getStudentHomeCourses = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    const { id } = req.params;
+    const authenticatedUserId = req.user?.uid;
+
+    if (!authenticatedUserId) {
+      return res.status(401).json({ error: "No autenticado" });
+    }
+
+    if (authenticatedUserId !== id) {
+      const isAdmin = await validateUser(req);
+      if (!isAdmin) {
+        return res.status(403).json({ error: "No autorizado para acceder a estos cursos" });
+      }
+    }
+
+    const userDoc = await usersCollection.doc(id).get();
+    if (!userDoc.exists) {
+      return res.json({ cursos: [] });
+    }
+
+    const userData = userDoc.data()!;
+    if (userData.activo === false) {
+      return res.json({ cursos: [] });
+    }
+
+    const cursosAsignados: string[] = userData.cursos_asignados || [];
+    if (cursosAsignados.length === 0) {
+      return res.json({ cursos: [] });
+    }
+
+    const progreso: Record<string, Record<string, boolean>> =
+      userData.progreso || {};
+    const modulosHabilitados: Record<string, boolean> =
+      userData.modulos_habilitados || {};
+
+    const homeCourses = await buildStudentHomeCourses(
+      cursosAsignados,
+      progreso,
+      modulosHabilitados
+    );
+
+    return res.json({ cursos: homeCourses });
+  } catch (err) {
+    console.error("getStudentHomeCourses error:", err);
+    return res.status(500).json({ error: "Error al obtener cursos del alumno" });
+  }
+};
+
+export const getStudentCourseContent = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    const { id } = req.params;
+    const authenticatedUserId = req.user?.uid;
+
+    if (!authenticatedUserId) {
+      return res.status(401).json({ error: "No autenticado" });
+    }
+
+    const userDoc = await usersCollection.doc(authenticatedUserId).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    const userData = userDoc.data()!;
+    if (userData.activo === false) {
+      return res.status(403).json({ error: "Usuario deshabilitado" });
+    }
+
+    const isAdmin = await validateUser(req);
+    if (
+      !isAdmin &&
+      !studentHasFormationAssigned(userData.cursos_asignados, id)
+    ) {
+      return res.status(403).json({ error: "No tenés acceso a este curso" });
+    }
+
+    const courseContent = await fetchStudentCourseContent(id, userData);
+    if (!courseContent) {
+      return res.status(404).json({ error: "Curso no encontrado" });
+    }
+
+    return res.json(courseContent);
+  } catch (err) {
+    console.error("getStudentCourseContent error:", err);
+    return res.status(500).json({ error: "Error al obtener contenido del curso" });
   }
 };
 

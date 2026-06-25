@@ -229,6 +229,68 @@ export const getFormationProgress = async (
   };
 };
 
+export interface FormationContentProgressResult {
+  completed: number;
+  total: number;
+  percentage: number;
+  tieneModulosVisibles: boolean;
+}
+
+/** Progreso por ítems de contenido (videos + documentos), igual que la barra del home. */
+export const getFormationContentProgress = async (
+  idFormacion: string,
+  progreso: Record<string, Record<string, boolean>> = {},
+  modulosHabilitadosOverrides: Record<string, boolean> = {}
+): Promise<FormationContentProgressResult> => {
+  const enabledModules = await getEnabledFormationModules(
+    idFormacion,
+    modulosHabilitadosOverrides
+  );
+
+  if (enabledModules.length === 0) {
+    const moduleIds = await getFormationModuleIds(idFormacion);
+    return {
+      completed: 0,
+      total: 0,
+      percentage: 0,
+      tieneModulosVisibles: moduleIds.length === 0,
+    };
+  }
+
+  const moduleDocs = await Promise.all(
+    enabledModules.map(({ moduleId }) =>
+      modulosCollection.doc(moduleId).get()
+    )
+  );
+
+  let completed = 0;
+  let total = 0;
+
+  for (let i = 0; i < enabledModules.length; i++) {
+    const { moduleId } = enabledModules[i];
+    const moduleDoc = moduleDocs[i];
+    if (!moduleDoc.exists) continue;
+
+    const moduleData = moduleDoc.data() as Record<string, unknown>;
+    const moduleProgreso = progreso[moduleId];
+    const contentKeys = getModuleContentKeys(moduleId, moduleData);
+
+    for (const item of contentKeys) {
+      total++;
+      if (moduleProgreso?.[item.key] === true) {
+        completed++;
+      }
+    }
+  }
+
+  return {
+    completed,
+    total,
+    percentage: total > 0 ? Math.round((completed / total) * 100) : 0,
+    tieneModulosVisibles: true,
+  };
+};
+
 export const studentHasFormationAssigned = (
   cursosAsignados: string[] | undefined,
   idFormacion: string
