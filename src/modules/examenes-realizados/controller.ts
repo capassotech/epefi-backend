@@ -209,6 +209,14 @@ export const getMiExamenRealizadoDetalle = async (
       });
     }
 
+    if (detalle.aprobado !== true) {
+      return res.status(403).json({
+        codigo: "DETALLE_SOLO_APROBADO",
+        error:
+          "El detalle del examen solo está disponible cuando aprobás la evaluación",
+      });
+    }
+
     const {
       emailAlumno: _emailAlumno,
       dniAlumno: _dniAlumno,
