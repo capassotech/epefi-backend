@@ -284,9 +284,6 @@ export const fetchStudentCourseContent = async (
       );
       modulosHabilitadosResueltos[moduloId] = enabled;
 
-      // Un módulo deshabilitado nunca se devuelve al alumno
-      if (!enabled) continue;
-
       const modulo = modulosById.get(moduloId);
       if (modulo) {
         modulos.push({ ...modulo, id_materia: materiaId });
