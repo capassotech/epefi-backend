@@ -234,9 +234,14 @@ export const fetchStudentCourseContent = async (
     ),
   ];
 
-  const moduloDocs = await Promise.all(
-    allModuleIds.map((moduloId) => modulosCollection.doc(moduloId).get())
-  );
+  const [moduloDocs, ...estadoSnapshots] = await Promise.all([
+    Promise.all(
+      allModuleIds.map((moduloId) => modulosCollection.doc(moduloId).get())
+    ),
+    ...materiaIds.map((materiaId) =>
+      materiasCollection.doc(materiaId).collection("modulos_estado").get()
+    ),
+  ]);
 
   const modulosById = new Map<string, Record<string, unknown>>();
   for (const doc of moduloDocs) {
@@ -248,6 +253,21 @@ export const fetchStudentCourseContent = async (
     }
   }
 
+  const estadoGlobalByKey = new Map<string, boolean>();
+  estadoSnapshots.forEach((snapshot, index) => {
+    const materiaId = materiaIds[index];
+    snapshot.docs.forEach((doc) => {
+      estadoGlobalByKey.set(
+        `${materiaId}:${doc.id}`,
+        doc.data()?.enabledGlobal === true
+      );
+    });
+  });
+
+  const overrides =
+    (userData.modulos_habilitados as Record<string, boolean>) || {};
+  const modulosHabilitadosResueltos: Record<string, boolean> = {};
+
   const modulos: Record<string, unknown>[] = [];
   for (const materiaDoc of materiaDocs) {
     if (!materiaDoc.exists) continue;
@@ -255,6 +275,18 @@ export const fetchStudentCourseContent = async (
     const moduloIds: string[] = materiaDoc.data()?.modulos || [];
 
     for (const moduloId of moduloIds) {
+      const enabled = resolveModuleEnabledSync(
+        moduloId,
+        materiaId,
+        moduloIds,
+        overrides,
+        estadoGlobalByKey
+      );
+      modulosHabilitadosResueltos[moduloId] = enabled;
+
+      // Un módulo deshabilitado nunca se devuelve al alumno
+      if (!enabled) continue;
+
       const modulo = modulosById.get(moduloId);
       if (modulo) {
         modulos.push({ ...modulo, id_materia: materiaId });
@@ -268,7 +300,6 @@ export const fetchStudentCourseContent = async (
     modulos,
     progreso:
       (userData.progreso as Record<string, Record<string, boolean>>) || {},
-    modulos_habilitados:
-      (userData.modulos_habilitados as Record<string, boolean>) || {},
+    modulos_habilitados: modulosHabilitadosResueltos,
   };
 };
