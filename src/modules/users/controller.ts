@@ -1,8 +1,17 @@
 import { Request, Response } from 'express';
 import { firebaseAuth, firestore } from '../../config/firebase';
 import { ValidatedUpdateUser, ValidatedUser, ValidatedUpdateProfile } from '../../types/schemas';
-import { validateUser } from '../../utils/utils';
+import {
+  validateUser,
+  formatFirestoreDoc,
+  compareByCreationDate,
+  isCreationDateSortField,
+} from '../../utils/utils';
 import { AuthenticatedRequest } from '../../middleware/authMiddleware';
+import {
+  getPasswordValidationErrors,
+  PASSWORD_POLICY_MESSAGE,
+} from '../../utils/passwordValidator';
 
 export const getUserProfile = async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -77,10 +86,7 @@ export const getUsers = async (req: AuthenticatedRequest, res: Response) => {
 
     const userDocs = await firestore.collection('users').get();
 
-    const users = userDocs.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
+    const users = userDocs.docs.map((doc) => formatFirestoreDoc(doc));
 
     const filteredUsers = users
       .filter((user: any) => {
@@ -102,25 +108,32 @@ export const getUsers = async (req: AuthenticatedRequest, res: Response) => {
         return user?.role?.[role] === true;
       })
       .sort((a: any, b: any) => {
-        let aValue: string | number = "";
-        let bValue: string | number = "";
-
         if (sortBy === "nombre") {
-          aValue = `${a?.nombre || ""} ${a?.apellido || ""}`.trim().toLowerCase();
-          bValue = `${b?.nombre || ""} ${b?.apellido || ""}`.trim().toLowerCase();
-        } else if (sortBy === "email") {
-          aValue = (a?.email || "").toString().toLowerCase();
-          bValue = (b?.email || "").toString().toLowerCase();
-        } else {
-          const aDate = a?.fechaRegistro || a?.fechaCreacion || null;
-          const bDate = b?.fechaRegistro || b?.fechaCreacion || null;
-          aValue = aDate ? new Date(aDate).getTime() : 0;
-          bValue = bDate ? new Date(bDate).getTime() : 0;
+          const aValue = `${a?.nombre || ""} ${a?.apellido || ""}`
+            .trim()
+            .toLowerCase();
+          const bValue = `${b?.nombre || ""} ${b?.apellido || ""}`
+            .trim()
+            .toLowerCase();
+          if (aValue < bValue) return sortOrder === "asc" ? -1 : 1;
+          if (aValue > bValue) return sortOrder === "asc" ? 1 : -1;
+          return String(a.id ?? "").localeCompare(String(b.id ?? ""));
         }
 
-        if (aValue < bValue) return sortOrder === "asc" ? -1 : 1;
-        if (aValue > bValue) return sortOrder === "asc" ? 1 : -1;
-        return 0;
+        if (sortBy === "email") {
+          const aValue = (a?.email || "").toString().toLowerCase();
+          const bValue = (b?.email || "").toString().toLowerCase();
+          if (aValue < bValue) return sortOrder === "asc" ? -1 : 1;
+          if (aValue > bValue) return sortOrder === "asc" ? 1 : -1;
+          return String(a.id ?? "").localeCompare(String(b.id ?? ""));
+        }
+
+        // Por defecto y para sortBy de fecha (fechaRegistro, fechaCreacion, etc.)
+        if (isCreationDateSortField(sortBy) || sortBy === "fechaRegistro") {
+          return compareByCreationDate(a, b, sortOrder);
+        }
+
+        return compareByCreationDate(a, b, sortOrder);
       });
 
     const total = filteredUsers.length;
@@ -156,6 +169,13 @@ export const createUser = async (req: AuthenticatedRequest, res: Response) => {
     }
 
     const { email, nombre, apellido, dni, role, activo, cursos_asignados, emailVerificado, password }: ValidatedUser = req.body;
+    const passwordErrors = getPasswordValidationErrors(password);
+    if (passwordErrors.length > 0) {
+      return res.status(400).json({
+        error: "Datos inválidos",
+        details: passwordErrors,
+      });
+    }
     
     if (cursos_asignados && cursos_asignados.length > 0) {
       for (const cursoId of cursos_asignados) {
@@ -182,20 +202,55 @@ export const createUser = async (req: AuthenticatedRequest, res: Response) => {
       password,
       displayName: `${nombre} ${apellido}`,
     });
-    
-    const userDoc = await firestore.collection("users").doc(userRecord.uid).set({ 
-      email, 
-      nombre, 
-      apellido, 
-      dni, 
-      role, 
-      activo, 
-      cursos_asignados, 
-      emailVerificado,
+
+    const now = new Date();
+    const userData = {
+      email,
+      nombre,
+      apellido,
+      dni,
+      role,
+      activo: activo ?? true,
+      cursos_asignados: cursos_asignados ?? [],
+      emailVerificado: emailVerificado ?? false,
+      fechaRegistro: now,
+      fechaActualizacion: now,
+    };
+
+    await firestore.collection("users").doc(userRecord.uid).set(userData);
+
+    return res.status(201).json({
+      message: "Usuario creado correctamente",
+      user: {
+        id: userRecord.uid,
+        uid: userRecord.uid,
+        ...userData,
+        fechaRegistro: now.toISOString(),
+        fechaActualizacion: now.toISOString(),
+      },
     });
-    return res.status(200).json({ message: "Usuario creado correctamente", user: userDoc });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error creating user:", error);
+
+    if (error.code === "auth/email-already-exists") {
+      return res.status(409).json({
+        error: "Ya existe un usuario registrado con este email",
+      });
+    }
+
+    if (error.code === "auth/invalid-email") {
+      return res.status(400).json({
+        error: "Formato de email inválido",
+      });
+    }
+
+    if (error.code === "auth/weak-password") {
+      return res.status(400).json({
+        error: PASSWORD_POLICY_MESSAGE,
+        details: [PASSWORD_POLICY_MESSAGE],
+      });
+    }
+
     return res.status(500).json({ error: "Error interno del servidor" });
   }
 };
@@ -285,7 +340,18 @@ export const updateUser = async (req: AuthenticatedRequest, res: Response) => {
               }
             }
           }
-          await altUserDocForUpdate.ref.update(updateData);
+          const { password, ...restUpdateData } = updateData;
+          if (password) {
+            const passwordErrors = getPasswordValidationErrors(password);
+            if (passwordErrors.length > 0) {
+              return res.status(400).json({
+                error: "Datos inválidos",
+                details: passwordErrors,
+              });
+            }
+            await firebaseAuth.updateUser(altCleanUid, { password });
+          }
+          await altUserDocForUpdate.ref.update(restUpdateData);
           const updatedDoc = await firestore.collection('users').doc(altCleanUid).get();
           return res.status(200).json({
             message: 'Usuario actualizado correctamente',
@@ -349,7 +415,19 @@ export const updateUser = async (req: AuthenticatedRequest, res: Response) => {
       }
     }
 
-    await userDoc.ref.update(updateData);
+    const { password, ...restUpdateData } = updateData;
+    if (password) {
+      const passwordErrors = getPasswordValidationErrors(password);
+      if (passwordErrors.length > 0) {
+        return res.status(400).json({
+          error: "Datos inválidos",
+          details: passwordErrors,
+        });
+      }
+      await firebaseAuth.updateUser(cleanUid, { password });
+    }
+
+    await userDoc.ref.update(restUpdateData);
 
     const updatedDoc = await firestore.collection('users').doc(cleanUid).get();
 

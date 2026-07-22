@@ -377,16 +377,12 @@ export const getModulosEstadoByMateria = async (req: Request, res: Response) => 
       return res.json([]);
     }
 
-    const modulos = [];
-    for (const moduloId of moduloIds) {
-      const moduloDoc = await modulosCollection.doc(moduloId).get();
-      if (moduloDoc.exists) {
-        modulos.push({
-          id: moduloDoc.id,
-          ...moduloDoc.data(),
-        });
-      }
-    }
+    const moduloDocs = await Promise.all(
+      moduloIds.map((id: string) => modulosCollection.doc(id).get())
+    );
+    const modulos = moduloDocs
+      .filter((doc) => doc.exists)
+      .map((doc) => ({ id: doc.id, ...doc.data() }));
 
     return res.json(modulos);
   } catch (err) {

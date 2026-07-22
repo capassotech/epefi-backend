@@ -7,6 +7,8 @@ import {
   updateCourse,
   deleteCourse,
   getCoursesByUserId,
+  getStudentHomeCourses,
+  getStudentCourseContent,
   toggleCourseStatus
 } from "./controller";
 import {
@@ -34,8 +36,16 @@ router.use((req, res, next) => {
 router.get("/", getAllCourses);
 
 // Rutas protegidas - requieren autenticación
+router.get("/user/:id/inicio", authMiddleware, (req: Request, res: Response) => {
+  return getStudentHomeCourses(req as AuthenticatedRequest, res);
+});
+
 router.get("/user/:id", authMiddleware, (req: Request, res: Response) => {
   return getCoursesByUserId(req as AuthenticatedRequest, res);
+});
+
+router.get("/:id/contenido-alumno", authMiddleware, (req: Request, res: Response) => {
+  return getStudentCourseContent(req as AuthenticatedRequest, res);
 });
 
 router.get("/:id", authMiddleware, (req: Request, res: Response) => {

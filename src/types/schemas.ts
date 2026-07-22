@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  isValidPassword,
+  PASSWORD_POLICY_MESSAGE,
+} from "../utils/passwordValidator";
 
 enum TipoContenido {
   VIDEO = "video",
@@ -30,7 +34,13 @@ export const UserSchema = z.object({
   email: z.string().email("El email del usuario es obligatorio"),
   nombre: z.string().min(1, "El nombre del usuario es obligatorio"),
   apellido: z.string().min(1, "El apellido del usuario es obligatorio"),
-  password: z.string().min(1, "La contraseña del usuario es obligatoria"),
+  password: z
+    .string()
+    .min(1, "La contraseña del usuario es obligatoria")
+    .max(128, "La contraseña no puede exceder 128 caracteres")
+    .refine((value) => isValidPassword(value), {
+      message: PASSWORD_POLICY_MESSAGE,
+    }),
   dni: z.string().min(1, "El DNI del usuario es obligatorio"),
   role: z.object({
     admin: z.boolean(),
@@ -155,23 +165,96 @@ export const ModuleSchema = z.object({
     .optional(),
 });
 
-export const UpdateUserSchema = z.object({
-  uid: z.string().optional(),
-  email: z.string().email("El email del usuario es obligatorio").optional(),
-  nombre: z.string().min(1, "El nombre del usuario es obligatorio").optional(),
-  apellido: z.string().min(1, "El apellido del usuario es obligatorio").optional(),
-  password: z.string().min(1, "La contraseña del usuario es obligatoria").optional(),
-  dni: z.string().optional(), // Permitir DNI vacío o opcional para usuarios de Google
-  role: z.object({
-    admin: z.boolean(),
-    student: z.boolean(),
-  }).optional(),
-  activo: z.boolean().optional(),
-  cursos_asignados: z.array(z.string()).optional(),
-  emailVerificado: z.boolean().optional(),
-  modulos_habilitados: z.record(z.string(), z.boolean()).optional(), // Record<string, boolean>
-  progreso: z.record(z.string(), z.record(z.string(), z.boolean())).optional(), // Record<string, Record<string, boolean>>
+const PreguntaExamenSchema = z.object({
+  id: z.string().min(1, "El ID de la pregunta es obligatorio").trim(),
+  texto: z
+    .string()
+    .min(1, "El texto de la pregunta es obligatorio")
+    .trim(),
+  respuestas: z
+    .array(
+      z.object({
+        id: z.string().min(1, "El ID de la respuesta es obligatorio").trim(),
+        texto: z
+          .string()
+          .min(1, "El texto de la respuesta es obligatorio")
+          .trim(),
+        esCorrecta: z.boolean(),
+      })
+    )
+    .min(1, "Cada pregunta debe tener al menos una respuesta"),
 });
+
+const validateExamenRespuestasCorrectas = (
+  data: { preguntas: z.infer<typeof PreguntaExamenSchema>[] },
+  ctx: z.RefinementCtx
+) => {
+  data.preguntas.forEach((pregunta, index) => {
+    const tieneCorrecta = pregunta.respuestas.some(
+      (respuesta) => respuesta.esCorrecta === true
+    );
+    if (!tieneCorrecta) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["preguntas", index, "respuestas"],
+        message:
+          "Cada pregunta debe tener al menos una respuesta marcada como correcta",
+      });
+    }
+  });
+};
+
+export const ExamenSchema = z
+  .object({
+    titulo: z
+      .string()
+      .min(1, "El titulo es obligatorio")
+      .max(100, "El titulo no puede exceder 100 caracteres")
+      .trim(),
+    idFormacion: z
+      .string()
+      .min(1, "El idFormacion es obligatorio")
+      .max(100, "El idFormacion no puede exceder 100 caracteres")
+      .trim(),
+    preguntas: z
+      .array(PreguntaExamenSchema)
+      .min(1, "El examen debe tener al menos una pregunta"),
+  })
+  .superRefine(validateExamenRespuestasCorrectas);
+
+export const UpdateUserSchema = z
+  .object({
+    uid: z.string().optional(),
+    email: z.string().email("El email del usuario es obligatorio").optional(),
+    nombre: z.string().min(1, "El nombre del usuario es obligatorio").optional(),
+    apellido: z.string().min(1, "El apellido del usuario es obligatorio").optional(),
+    password: z
+      .string()
+      .max(128, "La contraseña no puede exceder 128 caracteres")
+      .optional(),
+    dni: z.string().optional(), // Permitir DNI vacío o opcional para usuarios de Google
+    role: z
+      .object({
+        admin: z.boolean(),
+        student: z.boolean(),
+      })
+      .optional(),
+    activo: z.boolean().optional(),
+    cursos_asignados: z.array(z.string()).optional(),
+    emailVerificado: z.boolean().optional(),
+    modulos_habilitados: z.record(z.string(), z.boolean()).optional(), // Record<string, boolean>
+    progreso: z.record(z.string(), z.record(z.string(), z.boolean())).optional(), // Record<string, Record<string, boolean>>
+  })
+  .superRefine((data, ctx) => {
+    if (!data.password) return;
+    if (!isValidPassword(data.password)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["password"],
+        message: PASSWORD_POLICY_MESSAGE,
+      });
+    }
+  });
 
 export const UpdateProfileSchema = z.object({
   nombre: z.string().min(1, "El nombre del usuario es obligatorio").trim().optional(),
@@ -183,6 +266,22 @@ export const UpdateProfileSchema = z.object({
 export const UpdateModuleSchema = ModuleSchema.partial();
 export const UpdateCourseSchema = CourseSchema.partial();
 export const UpdateMateriaSchema = MateriaSchema.partial();
+export const UpdateExamenSchema = ExamenSchema.partial();
+
+export const SubmitExamenSchema = z.object({
+  idExamen: z.string().min(1, "El idExamen es obligatorio").trim(),
+  idFormacion: z.string().min(1, "El idFormacion es obligatorio").trim(),
+  respuestas: z
+    .array(
+      z.object({
+        idPregunta: z.string().min(1, "El idPregunta es obligatorio").trim(),
+        respuestasSeleccionadas: z
+          .array(z.string().min(1).trim())
+          .min(1, "Debés seleccionar al menos una respuesta"),
+      })
+    )
+    .min(1, "Debés enviar al menos una respuesta"),
+});
 
 export type ValidatedUser = z.infer<typeof UserSchema>;
 export type ValidatedUpdateUser = z.infer<typeof UpdateUserSchema>;
@@ -193,6 +292,9 @@ export type ValidatedUpdateCourse = z.infer<typeof UpdateCourseSchema>;
 export type ValidatedCourse = z.infer<typeof CourseSchema>;
 export type ValidatedMateria = z.infer<typeof MateriaSchema>;
 export type ValidatedUpdateMateria = z.infer<typeof UpdateMateriaSchema>;
+export type ValidatedExamen = z.infer<typeof ExamenSchema>;
+export type ValidatedUpdateExamen = z.infer<typeof UpdateExamenSchema>;
+export type ValidatedSubmitExamen = z.infer<typeof SubmitExamenSchema>;
 export interface Materia {
   id: string;
   nombre: string;
