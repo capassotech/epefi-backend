@@ -1,9 +1,12 @@
 import { firestore } from "../config/firebase";
 import { formatFirestoreDoc } from "./utils";
 import {
+  computeGradeFromPuntosObtenidos,
   ExamenPregunta,
+  getPreguntaPuntos,
   getTipoInputForQuestion,
   isQuestionCorrect,
+  normalizePreguntasPuntos,
   RespuestaAlumno,
 } from "./examenScoring";
 
@@ -185,8 +188,17 @@ export const buildExamenRealizadoDetalle = async (id: string) => {
   const userData = userDoc.data();
   const examenData = examenDoc.data();
   const cursoData = cursoDoc.data();
-  const preguntasExamen = (examenData?.preguntas || []) as ExamenPregunta[];
+  const preguntasExamen = normalizePreguntasPuntos(
+    ((examenData?.preguntas || []) as ExamenPregunta[])
+  );
   const respuestasAlumno = normalizeRespuestasAlumno(record.respuestas);
+  const totalPreguntasExamen = preguntasExamen.length;
+
+  const intentosSnapshot = await examenesRealizadosCollection
+    .where("idAlumno", "==", record.idAlumno)
+    .where("idExamen", "==", record.idExamen)
+    .get();
+  const totalIntentos = intentosSnapshot.size;
 
   const preguntasDetalle = preguntasExamen.map((pregunta, index) => {
     const respuestaAlumno = respuestasAlumno.find(
@@ -194,6 +206,7 @@ export const buildExamenRealizadoDetalle = async (id: string) => {
     );
     const seleccionadasIds = respuestaAlumno?.respuestasSeleccionadas ?? [];
     const opcionesCorrectas = pregunta.respuestas.filter((r) => r.esCorrecta);
+    const puntos = getPreguntaPuntos(pregunta, index, totalPreguntasExamen);
 
     const opciones = pregunta.respuestas.map((opcion) => ({
       id: opcion.id,
@@ -219,11 +232,14 @@ export const buildExamenRealizadoDetalle = async (id: string) => {
       .join(", ");
 
     const preguntaAcertada = isQuestionCorrect(pregunta, seleccionadasIds);
+    const puntosObtenidos = preguntaAcertada ? puntos : 0;
 
     return {
       orden: index + 1,
       id: pregunta.id,
       texto: pregunta.texto,
+      puntos,
+      puntosObtenidos,
       tipoInput: getTipoInputForQuestion(pregunta.respuestas),
       esCorrecta: preguntaAcertada,
       acertada: preguntaAcertada,
@@ -237,6 +253,17 @@ export const buildExamenRealizadoDetalle = async (id: string) => {
     };
   });
 
+  const puntosObtenidosTotal = preguntasDetalle.reduce(
+    (acc, pregunta) => acc + pregunta.puntosObtenidos,
+    0
+  );
+  const respuestasCorrectasRecalculadas = preguntasDetalle.filter(
+    (pregunta) => pregunta.acertada
+  ).length;
+  const calificacionRecalculada = computeGradeFromPuntosObtenidos(
+    puntosObtenidosTotal
+  );
+
   return {
     id: record.id,
     idAlumno: record.idAlumno,
@@ -247,13 +274,15 @@ export const buildExamenRealizadoDetalle = async (id: string) => {
     tituloFormacion: cursoData?.titulo || "Formación sin título",
     idExamen: record.idExamen,
     tituloExamen: examenData?.titulo || "Examen sin título",
-    nota: Number(record.nota ?? 0),
-    porcentajeAciertos: Number(record.porcentajeAciertos ?? 0),
-    respuestasCorrectas: Number(record.respuestasCorrectas ?? 0),
-    totalPreguntas: Number(record.totalPreguntas ?? 0),
-    aprobado: record.aprobado === true,
-    estado: record.aprobado === true ? "Aprobado" : "No aprobado",
+    nota: calificacionRecalculada.nota,
+    porcentajeAciertos: calificacionRecalculada.porcentajeAciertos,
+    puntosObtenidos: calificacionRecalculada.puntosObtenidos,
+    respuestasCorrectas: respuestasCorrectasRecalculadas,
+    totalPreguntas: totalPreguntasExamen,
+    aprobado: calificacionRecalculada.aprobado,
+    estado: calificacionRecalculada.aprobado ? "Aprobado" : "No aprobado",
     intentoNumero: Number(record.intentoNumero ?? 1),
+    totalIntentos,
     fechaRealizacion: record.fechaRealizacion || "",
     respuestasAlumno,
     preguntas: preguntasDetalle,
