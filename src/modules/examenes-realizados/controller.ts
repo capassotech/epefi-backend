@@ -95,24 +95,42 @@ export const submitExamenRealizado = async (
     }
 
     const preguntas = (examenData.preguntas || []) as ExamenPregunta[];
-    const preguntaIds = new Set(preguntas.map((p) => p.id));
-    const respuestasIds = new Set(payload.respuestas.map((r) => r.idPregunta));
+    const esCierreForzado =
+      payload.motivoCierre === "tiempo" || payload.motivoCierre === "abandono";
 
-    if (respuestasIds.size !== preguntaIds.size) {
-      return res.status(400).json({
-        error: "Debés responder todas las preguntas del examen",
-      });
-    }
+    // Completar respuestas faltantes (sin seleccionar) en cierre por tiempo/abandono
+    const respuestasPorPregunta = new Map(
+      payload.respuestas.map((r) => [r.idPregunta, r.respuestasSeleccionadas])
+    );
+    const respuestasNormalizadas = preguntas.map((pregunta) => ({
+      idPregunta: pregunta.id,
+      respuestasSeleccionadas: respuestasPorPregunta.get(pregunta.id) ?? [],
+    }));
 
-    for (const idPregunta of preguntaIds) {
-      if (!respuestasIds.has(idPregunta)) {
+    if (!esCierreForzado) {
+      const preguntaIds = new Set(preguntas.map((p) => p.id));
+      const respuestasIds = new Set(
+        respuestasNormalizadas
+          .filter((r) => r.respuestasSeleccionadas.length > 0)
+          .map((r) => r.idPregunta)
+      );
+
+      if (respuestasIds.size !== preguntaIds.size) {
         return res.status(400).json({
           error: "Debés responder todas las preguntas del examen",
         });
       }
+
+      for (const respuesta of respuestasNormalizadas) {
+        if (respuesta.respuestasSeleccionadas.length === 0) {
+          return res.status(400).json({
+            error: "Debés responder todas las preguntas del examen",
+          });
+        }
+      }
     }
 
-    for (const respuesta of payload.respuestas) {
+    for (const respuesta of respuestasNormalizadas) {
       const pregunta = preguntas.find((p) => p.id === respuesta.idPregunta);
       if (!pregunta) {
         return res.status(400).json({
@@ -129,20 +147,22 @@ export const submitExamenRealizado = async (
         }
       }
 
-      const correctas = pregunta.respuestas.filter((r) => r.esCorrecta).length;
-      if (correctas === 1 && respuesta.respuestasSeleccionadas.length !== 1) {
-        return res.status(400).json({
-          error: `La pregunta ${respuesta.idPregunta} admite una sola respuesta`,
-        });
-      }
-      if (correctas > 1 && respuesta.respuestasSeleccionadas.length === 0) {
-        return res.status(400).json({
-          error: `La pregunta ${respuesta.idPregunta} requiere al menos una respuesta`,
-        });
+      if (!esCierreForzado) {
+        const correctas = pregunta.respuestas.filter((r) => r.esCorrecta).length;
+        if (correctas === 1 && respuesta.respuestasSeleccionadas.length !== 1) {
+          return res.status(400).json({
+            error: `La pregunta ${respuesta.idPregunta} admite una sola respuesta`,
+          });
+        }
+        if (correctas > 1 && respuesta.respuestasSeleccionadas.length === 0) {
+          return res.status(400).json({
+            error: `La pregunta ${respuesta.idPregunta} requiere al menos una respuesta`,
+          });
+        }
       }
     }
 
-    const calificacion = calculateExamenGrade(preguntas, payload.respuestas);
+    const calificacion = calculateExamenGrade(preguntas, respuestasNormalizadas);
 
     if (calificacion.totalPreguntas === 0) {
       return res.status(400).json({
@@ -157,7 +177,7 @@ export const submitExamenRealizado = async (
       idAlumno: uid,
       idExamen: payload.idExamen,
       idFormacion: payload.idFormacion,
-      respuestas: payload.respuestas,
+      respuestas: respuestasNormalizadas,
       totalPreguntas: calificacion.totalPreguntas,
       respuestasCorrectas: calificacion.respuestasCorrectas,
       porcentajeAciertos: calificacion.porcentajeAciertos,
@@ -165,15 +185,23 @@ export const submitExamenRealizado = async (
       aprobado: calificacion.aprobado,
       intentoNumero,
       fechaRealizacion: now,
+      motivoCierre: payload.motivoCierre ?? "envio",
     };
 
     const saved = await examenesRealizadosCollection.add(registro);
     const savedDoc = await saved.get();
 
+    const mensajePorMotivo =
+      payload.motivoCierre === "tiempo"
+        ? "Se agotó el tiempo. El intento quedó registrado."
+        : payload.motivoCierre === "abandono"
+          ? "Cerraste la evaluación. El intento quedó registrado."
+          : calificacion.aprobado
+            ? "Felicitaciones, aprobaste la evaluación"
+            : "No aprobaste la evaluación. Podés reintentar cuando quieras";
+
     return res.status(201).json({
-      message: calificacion.aprobado
-        ? "Felicitaciones, aprobaste la evaluación"
-        : "No aprobaste la evaluación. Podés reintentar cuando quieras",
+      message: mensajePorMotivo,
       resultado: {
         ...formatFirestoreDoc(savedDoc),
         totalPreguntas: calificacion.totalPreguntas,
