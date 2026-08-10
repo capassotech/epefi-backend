@@ -10,6 +10,7 @@ import {
 import {
   calculateExamenGrade,
   ExamenPregunta,
+  normalizePreguntasPuntos,
 } from "../../utils/examenScoring";
 import { buildExamenRealizadoDetalle } from "../../utils/examenesRealizadosService";
 
@@ -94,7 +95,8 @@ export const submitExamenRealizado = async (
       });
     }
 
-    const preguntas = (examenData.preguntas || []) as ExamenPregunta[];
+    const preguntasRaw = (examenData.preguntas || []) as ExamenPregunta[];
+    const preguntas = normalizePreguntasPuntos(preguntasRaw);
     const preguntaIds = new Set(preguntas.map((p) => p.id));
     const respuestasIds = new Set(payload.respuestas.map((r) => r.idPregunta));
 
@@ -160,6 +162,7 @@ export const submitExamenRealizado = async (
       respuestas: payload.respuestas,
       totalPreguntas: calificacion.totalPreguntas,
       respuestasCorrectas: calificacion.respuestasCorrectas,
+      puntosObtenidos: calificacion.puntosObtenidos,
       porcentajeAciertos: calificacion.porcentajeAciertos,
       nota: calificacion.nota,
       aprobado: calificacion.aprobado,
@@ -178,6 +181,7 @@ export const submitExamenRealizado = async (
         ...formatFirestoreDoc(savedDoc),
         totalPreguntas: calificacion.totalPreguntas,
         respuestasCorrectas: calificacion.respuestasCorrectas,
+        puntosObtenidos: calificacion.puntosObtenidos,
         porcentajeAciertos: calificacion.porcentajeAciertos,
         nota: calificacion.nota,
         aprobado: calificacion.aprobado,

@@ -4,9 +4,13 @@ export const PORCENTAJE_MINIMO_APROBACION = 70;
 /** @deprecated Usar PORCENTAJE_MINIMO_APROBACION y porcentajeAciertos */
 export const NOTA_MINIMA_APROBACION = 7;
 
+/** Puntos totales que debe sumar el examen. */
+export const PUNTOS_TOTAL_EXAMEN = 100;
+
 export type ExamenPregunta = {
   id: string;
   texto: string;
+  puntos?: number;
   respuestas: Array<{
     id: string;
     texto: string;
@@ -22,9 +26,25 @@ export type RespuestaAlumno = {
 export type ExamenCalificacionResult = {
   totalPreguntas: number;
   respuestasCorrectas: number;
+  puntosObtenidos: number;
   porcentajeAciertos: number;
   nota: number;
   aprobado: boolean;
+};
+
+export const computeGradeFromPuntosObtenidos = (
+  puntosObtenidos: number
+): Pick<
+  ExamenCalificacionResult,
+  "puntosObtenidos" | "porcentajeAciertos" | "nota" | "aprobado"
+> => {
+  const porcentajeAciertos = roundToOneDecimal(
+    (puntosObtenidos / PUNTOS_TOTAL_EXAMEN) * 100
+  );
+  const nota = roundToOneDecimal((porcentajeAciertos / 100) * 10);
+  const aprobado = porcentajeAciertos >= PORCENTAJE_MINIMO_APROBACION;
+
+  return { puntosObtenidos, porcentajeAciertos, nota, aprobado };
 };
 
 export const roundToOneDecimal = (value: number): number =>
@@ -43,6 +63,65 @@ export const mapPreguntaForStudent = (pregunta: ExamenPregunta) => ({
   tipoInput: getTipoInputForQuestion(pregunta.respuestas),
   respuestas: pregunta.respuestas.map(({ id, texto }) => ({ id, texto })),
 });
+
+/** Reparte 100 puntos en partes enteras lo más equitativas posible. */
+export const distributePuntosEqually = (count: number): number[] => {
+  if (count <= 0) return [];
+  const base = Math.floor(PUNTOS_TOTAL_EXAMEN / count);
+  const remainder = PUNTOS_TOTAL_EXAMEN - base * count;
+  return Array.from({ length: count }, (_, index) =>
+    base + (index < remainder ? 1 : 0)
+  );
+};
+
+export const getPreguntaPuntos = (
+  pregunta: ExamenPregunta,
+  index: number,
+  totalPreguntas: number
+): number => {
+  if (typeof pregunta.puntos === "number" && pregunta.puntos >= 0) {
+    return pregunta.puntos;
+  }
+  if (totalPreguntas <= 0) return 0;
+  return distributePuntosEqually(totalPreguntas)[index] ?? 0;
+};
+
+export const normalizePreguntasPuntos = <T extends { puntos?: number }>(
+  preguntas: T[]
+): Array<T & { puntos: number }> => {
+  if (preguntas.length === 0) return [];
+
+  const allHavePuntos = preguntas.every(
+    (pregunta) => typeof pregunta.puntos === "number" && pregunta.puntos > 0
+  );
+  const noneHavePuntos = preguntas.every(
+    (pregunta) => pregunta.puntos == null || pregunta.puntos === undefined
+  );
+
+  if (noneHavePuntos) {
+    const distribution = distributePuntosEqually(preguntas.length);
+    return preguntas.map((pregunta, index) => ({
+      ...pregunta,
+      puntos: distribution[index],
+    }));
+  }
+
+  if (!allHavePuntos) {
+    throw new Error("Todas las preguntas deben tener puntos asignados");
+  }
+
+  const sum = preguntas.reduce((acc, pregunta) => acc + (pregunta.puntos ?? 0), 0);
+  if (sum !== PUNTOS_TOTAL_EXAMEN) {
+    throw new Error(
+      `La suma de puntos debe ser ${PUNTOS_TOTAL_EXAMEN} (actual: ${sum})`
+    );
+  }
+
+  return preguntas.map((pregunta) => ({
+    ...pregunta,
+    puntos: pregunta.puntos!,
+  }));
+};
 
 export const isQuestionCorrect = (
   pregunta: ExamenPregunta,
@@ -69,6 +148,7 @@ export const calculateExamenGrade = (
     return {
       totalPreguntas: 0,
       respuestasCorrectas: 0,
+      puntosObtenidos: 0,
       porcentajeAciertos: 0,
       nota: 0,
       aprobado: false,
@@ -76,27 +156,24 @@ export const calculateExamenGrade = (
   }
 
   let respuestasCorrectas = 0;
+  let puntosObtenidos = 0;
 
-  for (const pregunta of preguntas) {
+  preguntas.forEach((pregunta, index) => {
+    const puntosPregunta = getPreguntaPuntos(pregunta, index, totalPreguntas);
     const respuesta = respuestasAlumno.find((r) => r.idPregunta === pregunta.id);
     const seleccionadas = respuesta?.respuestasSeleccionadas ?? [];
     if (isQuestionCorrect(pregunta, seleccionadas)) {
       respuestasCorrectas++;
+      puntosObtenidos += puntosPregunta;
     }
-  }
+  });
 
-  const porcentajeAciertos = roundToOneDecimal(
-    (respuestasCorrectas / totalPreguntas) * 100
-  );
-  const nota = roundToOneDecimal((porcentajeAciertos / 100) * 10);
-  const aprobado = porcentajeAciertos >= PORCENTAJE_MINIMO_APROBACION;
+  const grade = computeGradeFromPuntosObtenidos(puntosObtenidos);
 
   return {
     totalPreguntas,
     respuestasCorrectas,
-    porcentajeAciertos,
-    nota,
-    aprobado,
+    ...grade,
   };
 };
 
