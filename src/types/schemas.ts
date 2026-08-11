@@ -292,6 +292,13 @@ const ExamenBaseSchema = z
       .min(1, "El idFormacion es obligatorio")
       .max(100, "El idFormacion no puede exceder 100 caracteres")
       .trim(),
+    /** Duración total del examen en minutos. Por defecto 90. */
+    duracionMinutos: z
+      .number({ message: "La duración debe ser un número" })
+      .int("La duración debe ser un número entero")
+      .min(1, "La duración mínima es 1 minuto")
+      .max(480, "La duración máxima es 480 minutos")
+      .default(90),
     preguntas: z
       .array(PreguntaExamenSchema)
       .min(1, "El examen debe tener al menos una pregunta"),
@@ -350,13 +357,13 @@ export const UpdateExamenSchema = ExamenBaseSchema.partial();
 export const SubmitExamenSchema = z.object({
   idExamen: z.string().min(1, "El idExamen es obligatorio").trim(),
   idFormacion: z.string().min(1, "El idFormacion es obligatorio").trim(),
+  /** tiempo = se agotó el contador; abandono = cerró a mitad; envio = finalizó normal. */
+  motivoCierre: z.enum(["tiempo", "abandono", "envio"]).optional(),
   respuestas: z
     .array(
       z.object({
         idPregunta: z.string().min(1, "El idPregunta es obligatorio").trim(),
-        respuestasSeleccionadas: z
-          .array(z.string().min(1).trim())
-          .min(1, "Debés seleccionar al menos una respuesta"),
+        respuestasSeleccionadas: z.array(z.string().min(1).trim()),
       })
     )
     .min(1, "Debés enviar al menos una respuesta"),

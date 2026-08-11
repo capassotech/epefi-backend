@@ -131,6 +131,10 @@ export const createExamen = async (req: AuthenticatedRequest, res: Response) => 
     const now = new Date();
     const examenToCreate = {
       ...examenData,
+      duracionMinutos:
+        typeof examenData.duracionMinutos === "number"
+          ? examenData.duracionMinutos
+          : 90,
       fechaCreacion: now,
       fechaActualizacion: now,
     };
@@ -166,6 +170,12 @@ export const updateExamen = async (req: AuthenticatedRequest, res: Response) => 
     const now = new Date();
     const examenToUpdate = {
       ...examenData,
+      duracionMinutos:
+        typeof examenData.duracionMinutos === "number"
+          ? examenData.duracionMinutos
+          : typeof existingData?.duracionMinutos === "number"
+            ? existingData.duracionMinutos
+            : 90,
       fechaCreacion: existingData?.fechaCreacion ?? now,
       fechaActualizacion: now,
     };
