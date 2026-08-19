@@ -138,6 +138,70 @@ export const isQuestionCorrect = (
   return correctIds.every((id, index) => id === selectedIds[index]);
 };
 
+export type PreguntaExamenSnapshot = {
+  id: string;
+  texto: string;
+  puntos: number;
+  respuestas: Array<{
+    id: string;
+    texto: string;
+    esCorrecta: boolean;
+  }>;
+};
+
+/** Copia inmutable de las preguntas al momento de rendir. */
+export const buildPreguntasSnapshot = (
+  preguntas: Array<ExamenPregunta & { puntos?: number }>
+): PreguntaExamenSnapshot[] => {
+  const total = preguntas.length;
+  return preguntas.map((pregunta, index) => ({
+    id: pregunta.id,
+    texto: pregunta.texto,
+    puntos: getPreguntaPuntos(pregunta, index, total),
+    respuestas: (pregunta.respuestas || []).map((r) => ({
+      id: r.id,
+      texto: r.texto,
+      esCorrecta: r.esCorrecta === true,
+    })),
+  }));
+};
+
+export type PreguntaExamenRealizadoGuardada = PreguntaExamenSnapshot & {
+  puntosObtenidos: number;
+  acertada: boolean;
+  esCorrecta: boolean;
+  respuestasSeleccionadas: string[];
+};
+
+/** Snapshot + resultado por pregunta para persistir en el intento. */
+export const buildPreguntasExamenRealizado = (
+  preguntas: Array<ExamenPregunta & { puntos?: number }>,
+  respuestasAlumno: RespuestaAlumno[]
+): PreguntaExamenRealizadoGuardada[] => {
+  const total = preguntas.length;
+  return preguntas.map((pregunta, index) => {
+    const puntos = getPreguntaPuntos(pregunta, index, total);
+    const seleccionadas =
+      respuestasAlumno.find((r) => r.idPregunta === pregunta.id)
+        ?.respuestasSeleccionadas ?? [];
+    const acertada = isQuestionCorrect(pregunta, seleccionadas);
+    return {
+      id: pregunta.id,
+      texto: pregunta.texto,
+      puntos,
+      puntosObtenidos: acertada ? puntos : 0,
+      acertada,
+      esCorrecta: acertada,
+      respuestas: (pregunta.respuestas || []).map((r) => ({
+        id: r.id,
+        texto: r.texto,
+        esCorrecta: r.esCorrecta === true,
+      })),
+      respuestasSeleccionadas: seleccionadas,
+    };
+  });
+};
+
 export const calculateExamenGrade = (
   preguntas: ExamenPregunta[],
   respuestasAlumno: RespuestaAlumno[]

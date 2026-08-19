@@ -3,6 +3,11 @@ import { firestore } from "../../config/firebase";
 import type { AuthenticatedRequest } from "../../middleware/authMiddleware";
 import { ValidatedExamen } from "../../types/schemas";
 import { formatFirestoreDoc, validateUser } from "../../utils/utils";
+import type { ExamenPregunta } from "../../utils/examenScoring";
+import {
+  backfillSnapshotsForExamen,
+  saveExamenPreguntasVersion,
+} from "../../utils/examenSnapshotService";
 
 const examenesCollection = firestore.collection("examenes");
 const cursosCollection = firestore.collection("cursos");
@@ -167,6 +172,26 @@ export const updateExamen = async (req: AuthenticatedRequest, res: Response) => 
     }
 
     const existingData = examenDoc.data();
+    const preguntasAnteriores = (existingData?.preguntas ||
+      []) as ExamenPregunta[];
+
+    // Congelar preguntas actuales en intentos sin snapshot + historial de versión
+    // ANTES de sobrescribir el examen, para que los detalles no se rompan.
+    if (preguntasAnteriores.length > 0) {
+      try {
+        await Promise.all([
+          saveExamenPreguntasVersion(id, preguntasAnteriores),
+          backfillSnapshotsForExamen(id, preguntasAnteriores),
+        ]);
+      } catch (snapshotError) {
+        console.error(
+          "No se pudo preservar snapshot/historial antes de editar examen:",
+          snapshotError
+        );
+        // Seguimos con la actualización; el snapshot en submit cubre intentos nuevos
+      }
+    }
+
     const now = new Date();
     const examenToUpdate = {
       ...examenData,
