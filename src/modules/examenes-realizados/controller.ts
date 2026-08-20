@@ -8,6 +8,8 @@ import {
   studentHasFormationAssigned,
 } from "../../utils/formacionProgress";
 import {
+  buildPreguntasExamenRealizado,
+  buildPreguntasSnapshot,
   calculateExamenGrade,
   ExamenPregunta,
   normalizePreguntasPuntos,
@@ -172,6 +174,13 @@ export const submitExamenRealizado = async (
       });
     }
 
+    // Snapshot inmutable: ediciones posteriores del examen no alteran este intento
+    const preguntasSnapshot = buildPreguntasSnapshot(preguntas);
+    const preguntasDetalle = buildPreguntasExamenRealizado(
+      preguntas,
+      respuestasNormalizadas
+    );
+
     const intentoNumero = (ultimoIntento?.intentoNumero || 0) + 1;
     const now = new Date();
 
@@ -180,6 +189,8 @@ export const submitExamenRealizado = async (
       idExamen: payload.idExamen,
       idFormacion: payload.idFormacion,
       respuestas: respuestasNormalizadas,
+      preguntasSnapshot,
+      preguntas: preguntasDetalle,
       totalPreguntas: calificacion.totalPreguntas,
       respuestasCorrectas: calificacion.respuestasCorrectas,
       puntosObtenidos: calificacion.puntosObtenidos,
