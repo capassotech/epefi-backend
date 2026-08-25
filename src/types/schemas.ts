@@ -5,7 +5,9 @@ import {
 } from "../utils/passwordValidator";
 import {
   normalizePreguntasPuntos,
+  puntosSumEqualsTotal,
   PUNTOS_TOTAL_EXAMEN,
+  roundPuntos,
 } from "../utils/examenScoring";
 
 enum TipoContenido {
@@ -177,7 +179,6 @@ const PreguntaExamenSchema = z.object({
     .trim(),
   puntos: z
     .number()
-    .int("Los puntos deben ser un número entero")
     .positive("Los puntos deben ser mayores a 0")
     .max(100, "Los puntos de una pregunta no pueden exceder 100")
     .optional(),
@@ -234,11 +235,11 @@ const validateExamenPreguntasPuntos = (
         (acc, pregunta) => acc + (pregunta.puntos ?? 0),
         0
       );
-      if (sum !== PUNTOS_TOTAL_EXAMEN) {
+      if (!puntosSumEqualsTotal(sum)) {
         ctx.addIssue({
           code: "custom",
           path: ["preguntas"],
-          message: `La suma de puntos debe ser ${PUNTOS_TOTAL_EXAMEN} (actual: ${sum})`,
+          message: `La suma de puntos debe ser ${PUNTOS_TOTAL_EXAMEN} (actual: ${roundPuntos(sum)})`,
         });
       }
     }

@@ -64,13 +64,27 @@ export const mapPreguntaForStudent = (pregunta: ExamenPregunta) => ({
   respuestas: pregunta.respuestas.map(({ id, texto }) => ({ id, texto })),
 });
 
-/** Reparte 100 puntos en partes enteras lo más equitativas posible. */
+/** Redondea puntos a 2 decimales (centésimas). */
+export const roundPuntos = (value: number): number =>
+  Math.round(value * 100) / 100;
+
+/** True si la suma (con 2 decimales) alcanza el total del examen. */
+export const puntosSumEqualsTotal = (sum: number): boolean =>
+  roundPuntos(sum) === PUNTOS_TOTAL_EXAMEN;
+
+/**
+ * Reparte 100 puntos en partes lo más equitativas posible, con hasta 2 decimales.
+ * Ej.: 3 preguntas → [33.34, 33.33, 33.33]
+ */
 export const distributePuntosEqually = (count: number): number[] => {
   if (count <= 0) return [];
-  const base = Math.floor(PUNTOS_TOTAL_EXAMEN / count);
-  const remainder = PUNTOS_TOTAL_EXAMEN - base * count;
+
+  const totalCents = Math.round(PUNTOS_TOTAL_EXAMEN * 100);
+  const baseCents = Math.floor(totalCents / count);
+  const remainder = totalCents - baseCents * count;
+
   return Array.from({ length: count }, (_, index) =>
-    base + (index < remainder ? 1 : 0)
+    roundPuntos((baseCents + (index < remainder ? 1 : 0)) / 100)
   );
 };
 
@@ -111,15 +125,15 @@ export const normalizePreguntasPuntos = <T extends { puntos?: number }>(
   }
 
   const sum = preguntas.reduce((acc, pregunta) => acc + (pregunta.puntos ?? 0), 0);
-  if (sum !== PUNTOS_TOTAL_EXAMEN) {
+  if (!puntosSumEqualsTotal(sum)) {
     throw new Error(
-      `La suma de puntos debe ser ${PUNTOS_TOTAL_EXAMEN} (actual: ${sum})`
+      `La suma de puntos debe ser ${PUNTOS_TOTAL_EXAMEN} (actual: ${roundPuntos(sum)})`
     );
   }
 
   return preguntas.map((pregunta) => ({
     ...pregunta,
-    puntos: pregunta.puntos!,
+    puntos: roundPuntos(pregunta.puntos!),
   }));
 };
 
