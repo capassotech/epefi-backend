@@ -105,6 +105,11 @@ export const getExamenEstadoFormacion = async (
       examenDisponible,
       idExamen: examenId,
       tituloExamen: examenData?.titulo ?? null,
+      duracionMinutos:
+        typeof examenData?.duracionMinutos === "number" &&
+        examenData.duracionMinutos > 0
+          ? examenData.duracionMinutos
+          : 90,
       ultimoIntento: ultimoIntento
         ? {
             id: ultimoIntento.id,
@@ -205,6 +210,11 @@ export const getExamenParaAlumno = async (
       id: examenDoc.id,
       titulo: examenData.titulo,
       idFormacion,
+      duracionMinutos:
+        typeof examenData.duracionMinutos === "number" &&
+        examenData.duracionMinutos > 0
+          ? examenData.duracionMinutos
+          : 90,
       esReintento,
       preguntasAleatorias: aleatorio,
       preguntas: preguntasOrdenadas,

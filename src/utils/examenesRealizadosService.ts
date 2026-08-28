@@ -1,11 +1,19 @@
 import { firestore } from "../config/firebase";
 import { formatFirestoreDoc } from "./utils";
 import {
+  computeGradeFromPuntosObtenidos,
   ExamenPregunta,
+  getPreguntaPuntos,
   getTipoInputForQuestion,
   isQuestionCorrect,
+  normalizePreguntasPuntos,
   RespuestaAlumno,
 } from "./examenScoring";
+import {
+  findPreguntasFromExamenHistorial,
+  intentoTieneSnapshot,
+  lazyBackfillIntentoSnapshot,
+} from "./examenSnapshotService";
 
 const examenesRealizadosCollection = firestore.collection("examenes_realizados");
 const examenesCollection = firestore.collection("examenes");
@@ -157,9 +165,13 @@ const normalizeRespuestasAlumno = (raw: unknown): RespuestaAlumno[] => {
       let seleccionadas: string[] = [];
 
       if (Array.isArray(item?.respuestasSeleccionadas)) {
-        seleccionadas = item.respuestasSeleccionadas.map((id: unknown) =>
-          String(id).trim()
-        );
+        seleccionadas = item.respuestasSeleccionadas.map((id: unknown) => {
+          if (id != null && typeof id === "object") {
+            const o = id as Record<string, unknown>;
+            return String(o.id ?? o.idRespuesta ?? "").trim();
+          }
+          return String(id).trim();
+        });
       } else if (item?.respuestaSeleccionada) {
         seleccionadas = [String(item.respuestaSeleccionada).trim()];
       } else if (item?.respuestaId) {
@@ -169,6 +181,225 @@ const normalizeRespuestasAlumno = (raw: unknown): RespuestaAlumno[] => {
       return { idPregunta, respuestasSeleccionadas: seleccionadas.filter(Boolean) };
     })
     .filter((r) => r.idPregunta);
+};
+
+const asPreguntaSnapshot = (raw: unknown): ExamenPregunta | null => {
+  if (!raw || typeof raw !== "object") return null;
+  const p = raw as Record<string, unknown>;
+  const id = String(p.id ?? p.idPregunta ?? "").trim();
+  if (!id) return null;
+
+  const respuestasRaw = Array.isArray(p.respuestas)
+    ? p.respuestas
+    : Array.isArray(p.opciones)
+      ? p.opciones
+      : [];
+
+  return {
+    id,
+    texto: String(p.texto ?? p.pregunta ?? ""),
+    puntos: typeof p.puntos === "number" ? p.puntos : undefined,
+    respuestas: respuestasRaw.map((r: any) => ({
+      id: String(r?.id ?? ""),
+      texto: String(r?.texto ?? r?.text ?? ""),
+      esCorrecta: Boolean(r?.esCorrecta ?? r?.correcta ?? r?.isCorrect),
+    })),
+  };
+};
+
+/**
+ * Fuente de preguntas del intento:
+ * 1) Snapshot guardado al rendir (preguntas / preguntasSnapshot)
+ * 2) Historial de versiones del examen (si se editó después)
+ * 3) Legacy: plantilla actual, limitada a las preguntas respondidas
+ */
+const resolvePreguntasDelIntento = async (
+  record: Record<string, any>,
+  examenData: FirebaseFirestore.DocumentData | undefined
+): Promise<{ preguntas: ExamenPregunta[]; fromLiveMatch: boolean }> => {
+  const fromSavedPreguntas = Array.isArray(record.preguntas)
+    ? record.preguntas
+        .map(asPreguntaSnapshot)
+        .filter((q): q is ExamenPregunta => q != null && q.respuestas.length > 0)
+    : [];
+  if (fromSavedPreguntas.length > 0) {
+    return { preguntas: fromSavedPreguntas, fromLiveMatch: false };
+  }
+
+  const fromSnapshot = Array.isArray(record.preguntasSnapshot)
+    ? record.preguntasSnapshot
+        .map(asPreguntaSnapshot)
+        .filter((q): q is ExamenPregunta => q != null && q.respuestas.length > 0)
+    : [];
+  if (fromSnapshot.length > 0) {
+    return { preguntas: fromSnapshot, fromLiveMatch: false };
+  }
+
+  const respuestasAlumno = normalizeRespuestasAlumno(record.respuestas);
+  const answeredIds = respuestasAlumno.map((r) => r.idPregunta);
+  const livePreguntas = ((examenData?.preguntas || []) as ExamenPregunta[]) || [];
+
+  // Historial de versiones del examen (antes de ediciones posteriores)
+  if (record.idExamen && answeredIds.length > 0) {
+    const fromHistorial = await findPreguntasFromExamenHistorial(
+      String(record.idExamen),
+      answeredIds
+    );
+    if (fromHistorial?.length) {
+      return { preguntas: fromHistorial, fromLiveMatch: false };
+    }
+  }
+
+  // Legacy: solo IDs respondidos en el examen vivo
+  if (answeredIds.length > 0) {
+    const liveById = new Map(livePreguntas.map((q) => [String(q.id), q]));
+    const matched = answeredIds
+      .map((id) => liveById.get(String(id)))
+      .filter((q): q is ExamenPregunta => q != null);
+
+    if (matched.length === answeredIds.length) {
+      return { preguntas: matched, fromLiveMatch: true };
+    }
+
+    // Mezcla: las que existen + stubs para las eliminadas (sin inventar texto)
+    if (matched.length > 0) {
+      return {
+        preguntas: answeredIds.map((id) => {
+          const live = liveById.get(String(id));
+          if (live) return live;
+          return {
+            id,
+            texto:
+              "Pregunta no disponible (fue modificada o eliminada del examen después de este intento)",
+            respuestas: [],
+          };
+        }),
+        fromLiveMatch: false,
+      };
+    }
+
+    return {
+      preguntas: answeredIds.map((id) => ({
+        id,
+        texto:
+          "Pregunta no disponible (fue modificada o eliminada del examen después de este intento)",
+        respuestas: [],
+      })),
+      fromLiveMatch: false,
+    };
+  }
+
+  return { preguntas: livePreguntas, fromLiveMatch: livePreguntas.length > 0 };
+};
+
+const buildPreguntaDetalle = (
+  pregunta: ExamenPregunta,
+  index: number,
+  totalPreguntas: number,
+  seleccionadasIds: string[],
+  savedPregunta?: Record<string, any>,
+  gradeHints?: {
+    porcentajeAciertos?: number;
+    puntosObtenidosTotal?: number;
+  }
+) => {
+  const puntos =
+    typeof savedPregunta?.puntos === "number"
+      ? savedPregunta.puntos
+      : getPreguntaPuntos(pregunta, index, totalPreguntas);
+
+  const opciones = pregunta.respuestas.map((opcion) => ({
+    id: opcion.id,
+    texto: opcion.texto,
+    esCorrecta: opcion.esCorrecta === true,
+    seleccionadaPorAlumno: seleccionadasIds.includes(opcion.id),
+  }));
+
+  const respuestas = opciones.map(({ id, texto, esCorrecta }) => ({
+    id,
+    texto,
+    esCorrecta,
+  }));
+
+  const respuestasSeleccionadas = opciones
+    .filter((o) => o.seleccionadaPorAlumno)
+    .map(({ id, texto, esCorrecta }) => ({ id, texto, esCorrecta }));
+
+  // Si no hay opciones (pregunta eliminada sin snapshot), mostrar al menos los IDs elegidos
+  const respuestasSeleccionadasFallback =
+    respuestasSeleccionadas.length > 0
+      ? respuestasSeleccionadas
+      : seleccionadasIds.map((id) => ({
+          id,
+          texto: `Opción seleccionada (${id})`,
+          esCorrecta: false,
+        }));
+
+  const opcionesCorrectas = pregunta.respuestas.filter((r) => r.esCorrecta);
+  const respuestasCorrectas = opcionesCorrectas.map(({ id, texto }) => ({
+    id,
+    texto,
+  }));
+
+  const sinOpciones = pregunta.respuestas.length === 0;
+
+  let preguntaAcertada =
+    typeof savedPregunta?.acertada === "boolean"
+      ? savedPregunta.acertada
+      : typeof savedPregunta?.esCorrecta === "boolean"
+        ? savedPregunta.esCorrecta
+        : sinOpciones
+          ? undefined
+          : isQuestionCorrect(pregunta, seleccionadasIds);
+
+  // Intentos legacy sin opciones: inferir desde la nota global guardada
+  if (preguntaAcertada === undefined && sinOpciones) {
+    const pct = gradeHints?.porcentajeAciertos;
+    if (typeof pct === "number") {
+      if (pct >= 100) preguntaAcertada = true;
+      else if (pct <= 0) preguntaAcertada = false;
+    }
+  }
+
+  const puntosObtenidos =
+    typeof savedPregunta?.puntosObtenidos === "number"
+      ? savedPregunta.puntosObtenidos
+      : preguntaAcertada === true
+        ? puntos
+        : preguntaAcertada === false
+          ? 0
+          : 0;
+
+  return {
+    orden: index + 1,
+    id: pregunta.id,
+    texto: pregunta.texto,
+    puntos,
+    puntosObtenidos,
+    tipoInput: getTipoInputForQuestion(pregunta.respuestas),
+    esCorrecta: preguntaAcertada === true,
+    acertada: preguntaAcertada === true,
+    preguntaNoDisponible: sinOpciones,
+    respuestas,
+    idsRespuestasSeleccionadas: seleccionadasIds,
+    respuestasSeleccionadas: respuestasSeleccionadasFallback,
+    respuestasCorrectas,
+    textoRespuestasSeleccionadas:
+      respuestasSeleccionadasFallback.map((r) => r.texto).join(", ") ||
+      "Sin respuesta",
+    textoRespuestasCorrectas:
+      respuestasCorrectas.map((r) => r.texto).join(", ") ||
+      (sinOpciones ? "No disponible" : "Sin respuesta definida"),
+    opciones:
+      opciones.length > 0
+        ? opciones
+        : seleccionadasIds.map((id) => ({
+            id,
+            texto: `Opción seleccionada (${id})`,
+            esCorrecta: false,
+            seleccionadaPorAlumno: true,
+          })),
+  };
 };
 
 export const buildExamenRealizadoDetalle = async (id: string) => {
@@ -185,57 +416,129 @@ export const buildExamenRealizadoDetalle = async (id: string) => {
   const userData = userDoc.data();
   const examenData = examenDoc.data();
   const cursoData = cursoDoc.data();
-  const preguntasExamen = (examenData?.preguntas || []) as ExamenPregunta[];
+
+  const resolved = await resolvePreguntasDelIntento(record, examenData);
+  const preguntasFuente = resolved.preguntas;
+  let preguntasExamen: ExamenPregunta[];
+  try {
+    preguntasExamen = normalizePreguntasPuntos(preguntasFuente);
+  } catch {
+    const distribution = preguntasFuente.map((p, i) =>
+      getPreguntaPuntos(p, i, preguntasFuente.length)
+    );
+    preguntasExamen = preguntasFuente.map((p, i) => ({
+      ...p,
+      puntos: typeof p.puntos === "number" ? p.puntos : distribution[i],
+    }));
+  }
+
   const respuestasAlumno = normalizeRespuestasAlumno(record.respuestas);
+  const savedPreguntasById = new Map<string, Record<string, any>>();
+  if (Array.isArray(record.preguntas)) {
+    for (const p of record.preguntas) {
+      const pid = String(p?.id ?? p?.idPregunta ?? "").trim();
+      if (pid) savedPreguntasById.set(pid, p);
+    }
+  }
+
+  // Congelar snapshot si todavía podemos (examen vivo coincide)
+  if (resolved.fromLiveMatch && !intentoTieneSnapshot(record)) {
+    lazyBackfillIntentoSnapshot(
+      id,
+      record,
+      preguntasExamen,
+      respuestasAlumno
+    ).catch((err) =>
+      console.error("lazyBackfillIntentoSnapshot error:", err)
+    );
+  }
+
+  const intentosSnapshot = await examenesRealizadosCollection
+    .where("idAlumno", "==", record.idAlumno)
+    .where("idExamen", "==", record.idExamen)
+    .get();
+  const totalIntentos = intentosSnapshot.size;
+
+  const gradeHints = {
+    porcentajeAciertos:
+      typeof record.porcentajeAciertos === "number"
+        ? Number(record.porcentajeAciertos)
+        : undefined,
+    puntosObtenidosTotal:
+      typeof record.puntosObtenidos === "number"
+        ? Number(record.puntosObtenidos)
+        : undefined,
+  };
 
   const preguntasDetalle = preguntasExamen.map((pregunta, index) => {
-    const respuestaAlumno = respuestasAlumno.find(
+    const saved = savedPreguntasById.get(pregunta.id);
+    const fromRespuestas = respuestasAlumno.find(
       (r) => r.idPregunta === pregunta.id
     );
-    const seleccionadasIds = respuestaAlumno?.respuestasSeleccionadas ?? [];
-    const opcionesCorrectas = pregunta.respuestas.filter((r) => r.esCorrecta);
+    const fromSavedSeleccion = Array.isArray(saved?.respuestasSeleccionadas)
+      ? saved!
+          .respuestasSeleccionadas.map((sid: unknown) => {
+            if (sid != null && typeof sid === "object") {
+              const o = sid as Record<string, unknown>;
+              return String(o.id ?? "").trim();
+            }
+            return String(sid).trim();
+          })
+          .filter(Boolean)
+      : [];
+    const seleccionadasIds =
+      fromRespuestas?.respuestasSeleccionadas?.length
+        ? fromRespuestas.respuestasSeleccionadas
+        : fromSavedSeleccion;
 
-    const opciones = pregunta.respuestas.map((opcion) => ({
-      id: opcion.id,
-      texto: opcion.texto,
-      esCorrecta: opcion.esCorrecta === true,
-      seleccionadaPorAlumno: seleccionadasIds.includes(opcion.id),
-    }));
-
-    const respuestasSeleccionadas = opciones
-      .filter((o) => o.seleccionadaPorAlumno)
-      .map(({ id, texto, esCorrecta }) => ({ id, texto, esCorrecta }));
-
-    const respuestasCorrectas = opcionesCorrectas.map(({ id, texto }) => ({
-      id,
-      texto,
-    }));
-
-    const textoRespuestasSeleccionadas = respuestasSeleccionadas
-      .map((r) => r.texto)
-      .join(", ");
-    const textoRespuestasCorrectas = respuestasCorrectas
-      .map((r) => r.texto)
-      .join(", ");
-
-    const preguntaAcertada = isQuestionCorrect(pregunta, seleccionadasIds);
-
-    return {
-      orden: index + 1,
-      id: pregunta.id,
-      texto: pregunta.texto,
-      tipoInput: getTipoInputForQuestion(pregunta.respuestas),
-      esCorrecta: preguntaAcertada,
-      acertada: preguntaAcertada,
-      respuestasSeleccionadas,
-      respuestasCorrectas,
-      textoRespuestasSeleccionadas:
-        textoRespuestasSeleccionadas || "Sin respuesta",
-      textoRespuestasCorrectas:
-        textoRespuestasCorrectas || "Sin respuesta definida",
-      opciones,
-    };
+    return buildPreguntaDetalle(
+      pregunta,
+      index,
+      preguntasExamen.length,
+      seleccionadasIds,
+      saved,
+      gradeHints
+    );
   });
+
+  const hasStoredGrade =
+    typeof record.nota === "number" ||
+    typeof record.puntosObtenidos === "number" ||
+    typeof record.porcentajeAciertos === "number";
+
+  const puntosFromDetalle = preguntasDetalle.reduce(
+    (acc, pregunta) => acc + pregunta.puntosObtenidos,
+    0
+  );
+  const correctasFromDetalle = preguntasDetalle.filter((p) => p.acertada).length;
+  const gradeFromDetalle = computeGradeFromPuntosObtenidos(puntosFromDetalle);
+
+  const puntosObtenidos = hasStoredGrade
+    ? Number(record.puntosObtenidos ?? gradeFromDetalle.puntosObtenidos)
+    : gradeFromDetalle.puntosObtenidos;
+  const porcentajeAciertos = hasStoredGrade
+    ? Number(
+        record.porcentajeAciertos ??
+          computeGradeFromPuntosObtenidos(puntosObtenidos).porcentajeAciertos
+      )
+    : gradeFromDetalle.porcentajeAciertos;
+  const nota = hasStoredGrade
+    ? Number(record.nota ?? computeGradeFromPuntosObtenidos(puntosObtenidos).nota)
+    : gradeFromDetalle.nota;
+  const aprobado = hasStoredGrade
+    ? record.aprobado === true
+    : gradeFromDetalle.aprobado;
+  const totalPreguntas = Number(
+    record.totalPreguntas ?? preguntasExamen.length
+  );
+  const respuestasCorrectas = Number(
+    record.respuestasCorrectas ?? correctasFromDetalle
+  );
+
+  const preguntasRecuperables = preguntasDetalle.some(
+    (p) => !p.preguntaNoDisponible
+  );
+  const tieneSnapshot = intentoTieneSnapshot(record);
 
   return {
     id: record.id,
@@ -247,17 +550,21 @@ export const buildExamenRealizadoDetalle = async (id: string) => {
     tituloFormacion: cursoData?.titulo || "Formación sin título",
     idExamen: record.idExamen,
     tituloExamen: examenData?.titulo || "Examen sin título",
-    nota: Number(record.nota ?? 0),
-    porcentajeAciertos: Number(record.porcentajeAciertos ?? 0),
-    respuestasCorrectas: Number(record.respuestasCorrectas ?? 0),
-    totalPreguntas: Number(record.totalPreguntas ?? 0),
-    aprobado: record.aprobado === true,
-    estado: record.aprobado === true ? "Aprobado" : "No aprobado",
+    nota,
+    porcentajeAciertos,
+    puntosObtenidos,
+    respuestasCorrectas,
+    totalPreguntas,
+    aprobado,
+    estado: aprobado ? "Aprobado" : "No aprobado",
     intentoNumero: Number(record.intentoNumero ?? 1),
+    totalIntentos,
     fechaRealizacion: record.fechaRealizacion || "",
     respuestasAlumno,
     preguntas: preguntasDetalle,
     detallePreguntas: preguntasDetalle,
+    tieneSnapshot,
+    detalleIncompleto: !tieneSnapshot && !preguntasRecuperables,
   };
 };
 

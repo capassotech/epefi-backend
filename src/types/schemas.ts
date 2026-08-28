@@ -3,6 +3,12 @@ import {
   isValidPassword,
   PASSWORD_POLICY_MESSAGE,
 } from "../utils/passwordValidator";
+import {
+  normalizePreguntasPuntos,
+  puntosSumEqualsTotal,
+  PUNTOS_TOTAL_EXAMEN,
+  roundPuntos,
+} from "../utils/examenScoring";
 
 enum TipoContenido {
   VIDEO = "video",
@@ -171,6 +177,11 @@ const PreguntaExamenSchema = z.object({
     .string()
     .min(1, "El texto de la pregunta es obligatorio")
     .trim(),
+  puntos: z
+    .number()
+    .positive("Los puntos deben ser mayores a 0")
+    .max(100, "Los puntos de una pregunta no pueden exceder 100")
+    .optional(),
   respuestas: z
     .array(
       z.object({
@@ -204,7 +215,73 @@ const validateExamenRespuestasCorrectas = (
   });
 };
 
-export const ExamenSchema = z
+const validateExamenPreguntasPuntos = (
+  data: { preguntas: z.infer<typeof PreguntaExamenSchema>[] },
+  ctx: z.RefinementCtx
+) => {
+  const preguntas = data.preguntas;
+  if (preguntas.length === 0) return;
+
+  const allHavePuntos = preguntas.every(
+    (pregunta) => typeof pregunta.puntos === "number" && pregunta.puntos > 0
+  );
+  const noneHavePuntos = preguntas.every(
+    (pregunta) => pregunta.puntos == null || pregunta.puntos === undefined
+  );
+
+  if (noneHavePuntos || allHavePuntos) {
+    if (allHavePuntos) {
+      const sum = preguntas.reduce(
+        (acc, pregunta) => acc + (pregunta.puntos ?? 0),
+        0
+      );
+      if (!puntosSumEqualsTotal(sum)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["preguntas"],
+          message: `La suma de puntos debe ser ${PUNTOS_TOTAL_EXAMEN} (actual: ${roundPuntos(sum)})`,
+        });
+      }
+    }
+    return;
+  }
+
+  ctx.addIssue({
+    code: "custom",
+    path: ["preguntas"],
+    message: "Todas las preguntas deben tener puntos asignados",
+  });
+};
+
+const preprocessExamenPuntos = (input: unknown): unknown => {
+  if (typeof input !== "object" || input == null || !("preguntas" in input)) {
+    return input;
+  }
+
+  const examen = input as { preguntas: Array<{ puntos?: number }> };
+  if (!Array.isArray(examen.preguntas) || examen.preguntas.length === 0) {
+    return input;
+  }
+
+  const noneHavePuntos = examen.preguntas.every(
+    (pregunta) => pregunta.puntos == null || pregunta.puntos === undefined
+  );
+
+  if (!noneHavePuntos) {
+    return input;
+  }
+
+  try {
+    return {
+      ...examen,
+      preguntas: normalizePreguntasPuntos(examen.preguntas),
+    };
+  } catch {
+    return input;
+  }
+};
+
+const ExamenBaseSchema = z
   .object({
     titulo: z
       .string()
@@ -216,11 +293,21 @@ export const ExamenSchema = z
       .min(1, "El idFormacion es obligatorio")
       .max(100, "El idFormacion no puede exceder 100 caracteres")
       .trim(),
+    /** Duración total del examen en minutos. Por defecto 90. */
+    duracionMinutos: z
+      .number({ message: "La duración debe ser un número" })
+      .int("La duración debe ser un número entero")
+      .min(1, "La duración mínima es 1 minuto")
+      .max(480, "La duración máxima es 480 minutos")
+      .default(90),
     preguntas: z
       .array(PreguntaExamenSchema)
       .min(1, "El examen debe tener al menos una pregunta"),
   })
-  .superRefine(validateExamenRespuestasCorrectas);
+  .superRefine(validateExamenRespuestasCorrectas)
+  .superRefine(validateExamenPreguntasPuntos);
+
+export const ExamenSchema = z.preprocess(preprocessExamenPuntos, ExamenBaseSchema);
 
 export const UpdateUserSchema = z
   .object({
@@ -266,18 +353,18 @@ export const UpdateProfileSchema = z.object({
 export const UpdateModuleSchema = ModuleSchema.partial();
 export const UpdateCourseSchema = CourseSchema.partial();
 export const UpdateMateriaSchema = MateriaSchema.partial();
-export const UpdateExamenSchema = ExamenSchema.partial();
+export const UpdateExamenSchema = ExamenBaseSchema.partial();
 
 export const SubmitExamenSchema = z.object({
   idExamen: z.string().min(1, "El idExamen es obligatorio").trim(),
   idFormacion: z.string().min(1, "El idFormacion es obligatorio").trim(),
+  /** tiempo = se agotó el contador; abandono = cerró a mitad; envio = finalizó normal. */
+  motivoCierre: z.enum(["tiempo", "abandono", "envio"]).optional(),
   respuestas: z
     .array(
       z.object({
         idPregunta: z.string().min(1, "El idPregunta es obligatorio").trim(),
-        respuestasSeleccionadas: z
-          .array(z.string().min(1).trim())
-          .min(1, "Debés seleccionar al menos una respuesta"),
+        respuestasSeleccionadas: z.array(z.string().min(1).trim()),
       })
     )
     .min(1, "Debés enviar al menos una respuesta"),
