@@ -7,10 +7,16 @@ export const NOTA_MINIMA_APROBACION = 7;
 /** Puntos totales que debe sumar el examen. */
 export const PUNTOS_TOTAL_EXAMEN = 100;
 
+export type TipoPregunta = "opcion_multiple" | "desarrollo";
+
+export type EstadoExamenRealizado = "completado" | "pendiente_correccion";
+
 export type ExamenPregunta = {
   id: string;
   texto: string;
   puntos?: number;
+  /** Por defecto opcion_multiple (exámenes legacy). */
+  tipoPregunta?: TipoPregunta;
   respuestas: Array<{
     id: string;
     texto: string;
@@ -21,7 +27,27 @@ export type ExamenPregunta = {
 export type RespuestaAlumno = {
   idPregunta: string;
   respuestasSeleccionadas: string[];
+  respuestaDesarrollo?: string;
 };
+
+export const resolveTipoPregunta = (
+  pregunta: { tipoPregunta?: TipoPregunta | string | null }
+): TipoPregunta =>
+  pregunta.tipoPregunta === "desarrollo" ? "desarrollo" : "opcion_multiple";
+
+export const esPreguntaDesarrollo = (
+  pregunta: { tipoPregunta?: TipoPregunta | string | null }
+): boolean => resolveTipoPregunta(pregunta) === "desarrollo";
+
+/** True si al menos una pregunta es de desarrollo. */
+export const tienePreguntasDesarrollo = (
+  preguntas: Array<{ tipoPregunta?: TipoPregunta | string | null }>
+): boolean => preguntas.some((p) => esPreguntaDesarrollo(p));
+
+export const resolveEstadoExamenRealizado = (
+  preguntas: Array<{ tipoPregunta?: TipoPregunta | string | null }>
+): EstadoExamenRealizado =>
+  tienePreguntasDesarrollo(preguntas) ? "pendiente_correccion" : "completado";
 
 export type ExamenCalificacionResult = {
   totalPreguntas: number;
@@ -51,18 +77,35 @@ export const roundToOneDecimal = (value: number): number =>
   Math.round(value * 10) / 10;
 
 export const getTipoInputForQuestion = (
-  respuestas: Array<{ esCorrecta: boolean }>
-): "radio" | "checkbox" => {
+  respuestas: Array<{ esCorrecta: boolean }>,
+  tipoPregunta?: TipoPregunta | string | null
+): "radio" | "checkbox" | "textarea" => {
+  if (resolveTipoPregunta({ tipoPregunta }) === "desarrollo") {
+    return "textarea";
+  }
   const correctas = respuestas.filter((r) => r.esCorrecta === true).length;
   return correctas === 1 ? "radio" : "checkbox";
 };
 
-export const mapPreguntaForStudent = (pregunta: ExamenPregunta) => ({
-  id: pregunta.id,
-  texto: pregunta.texto,
-  tipoInput: getTipoInputForQuestion(pregunta.respuestas),
-  respuestas: pregunta.respuestas.map(({ id, texto }) => ({ id, texto })),
-});
+export const mapPreguntaForStudent = (pregunta: ExamenPregunta) => {
+  const tipoPregunta = resolveTipoPregunta(pregunta);
+  if (tipoPregunta === "desarrollo") {
+    return {
+      id: pregunta.id,
+      texto: pregunta.texto,
+      tipoPregunta,
+      tipoInput: "textarea" as const,
+      respuestas: [] as Array<{ id: string; texto: string }>,
+    };
+  }
+  return {
+    id: pregunta.id,
+    texto: pregunta.texto,
+    tipoPregunta,
+    tipoInput: getTipoInputForQuestion(pregunta.respuestas, tipoPregunta),
+    respuestas: (pregunta.respuestas || []).map(({ id, texto }) => ({ id, texto })),
+  };
+};
 
 /** Redondea puntos a 2 decimales (centésimas). */
 export const roundPuntos = (value: number): number =>
@@ -156,6 +199,7 @@ export type PreguntaExamenSnapshot = {
   id: string;
   texto: string;
   puntos: number;
+  tipoPregunta: TipoPregunta;
   respuestas: Array<{
     id: string;
     texto: string;
@@ -172,11 +216,14 @@ export const buildPreguntasSnapshot = (
     id: pregunta.id,
     texto: pregunta.texto,
     puntos: getPreguntaPuntos(pregunta, index, total),
-    respuestas: (pregunta.respuestas || []).map((r) => ({
-      id: r.id,
-      texto: r.texto,
-      esCorrecta: r.esCorrecta === true,
-    })),
+    tipoPregunta: resolveTipoPregunta(pregunta),
+    respuestas: esPreguntaDesarrollo(pregunta)
+      ? []
+      : (pregunta.respuestas || []).map((r) => ({
+          id: r.id,
+          texto: r.texto,
+          esCorrecta: r.esCorrecta === true,
+        })),
   }));
 };
 
@@ -185,6 +232,7 @@ export type PreguntaExamenRealizadoGuardada = PreguntaExamenSnapshot & {
   acertada: boolean;
   esCorrecta: boolean;
   respuestasSeleccionadas: string[];
+  respuestaDesarrollo?: string;
 };
 
 /** Snapshot + resultado por pregunta para persistir en el intento. */
@@ -195,23 +243,32 @@ export const buildPreguntasExamenRealizado = (
   const total = preguntas.length;
   return preguntas.map((pregunta, index) => {
     const puntos = getPreguntaPuntos(pregunta, index, total);
-    const seleccionadas =
-      respuestasAlumno.find((r) => r.idPregunta === pregunta.id)
-        ?.respuestasSeleccionadas ?? [];
-    const acertada = isQuestionCorrect(pregunta, seleccionadas);
+    const respAlumno = respuestasAlumno.find((r) => r.idPregunta === pregunta.id);
+    const seleccionadas = respAlumno?.respuestasSeleccionadas ?? [];
+    const desarrollo = esPreguntaDesarrollo(pregunta);
+    // Desarrollo: no se auto-corrige; queda en 0 hasta corrección manual
+    const acertada = desarrollo
+      ? false
+      : isQuestionCorrect(pregunta, seleccionadas);
     return {
       id: pregunta.id,
       texto: pregunta.texto,
       puntos,
-      puntosObtenidos: acertada ? puntos : 0,
+      tipoPregunta: resolveTipoPregunta(pregunta),
+      puntosObtenidos: desarrollo ? 0 : acertada ? puntos : 0,
       acertada,
       esCorrecta: acertada,
-      respuestas: (pregunta.respuestas || []).map((r) => ({
-        id: r.id,
-        texto: r.texto,
-        esCorrecta: r.esCorrecta === true,
-      })),
-      respuestasSeleccionadas: seleccionadas,
+      respuestas: desarrollo
+        ? []
+        : (pregunta.respuestas || []).map((r) => ({
+            id: r.id,
+            texto: r.texto,
+            esCorrecta: r.esCorrecta === true,
+          })),
+      respuestasSeleccionadas: desarrollo ? [] : seleccionadas,
+      ...(desarrollo
+        ? { respuestaDesarrollo: respAlumno?.respuestaDesarrollo?.trim() || "" }
+        : {}),
     };
   });
 };
@@ -237,6 +294,9 @@ export const calculateExamenGrade = (
   let puntosObtenidos = 0;
 
   preguntas.forEach((pregunta, index) => {
+    // Preguntas de desarrollo no se auto-califican
+    if (esPreguntaDesarrollo(pregunta)) return;
+
     const puntosPregunta = getPreguntaPuntos(pregunta, index, totalPreguntas);
     const respuesta = respuestasAlumno.find((r) => r.idPregunta === pregunta.id);
     const seleccionadas = respuesta?.respuestasSeleccionadas ?? [];
@@ -247,6 +307,18 @@ export const calculateExamenGrade = (
   });
 
   const grade = computeGradeFromPuntosObtenidos(puntosObtenidos);
+
+  // Si hay desarrollo pendiente, no se aprueba hasta la corrección manual
+  if (tienePreguntasDesarrollo(preguntas)) {
+    return {
+      totalPreguntas,
+      respuestasCorrectas,
+      puntosObtenidos: grade.puntosObtenidos,
+      porcentajeAciertos: grade.porcentajeAciertos,
+      nota: grade.nota,
+      aprobado: false,
+    };
+  }
 
   return {
     totalPreguntas,

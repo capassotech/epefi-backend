@@ -182,6 +182,9 @@ const PreguntaExamenSchema = z.object({
     .positive("Los puntos deben ser mayores a 0")
     .max(100, "Los puntos de una pregunta no pueden exceder 100")
     .optional(),
+  tipoPregunta: z
+    .enum(["opcion_multiple", "desarrollo"])
+    .default("opcion_multiple"),
   respuestas: z
     .array(
       z.object({
@@ -193,7 +196,7 @@ const PreguntaExamenSchema = z.object({
         esCorrecta: z.boolean(),
       })
     )
-    .min(1, "Cada pregunta debe tener al menos una respuesta"),
+    .default([]),
 });
 
 const validateExamenRespuestasCorrectas = (
@@ -201,6 +204,18 @@ const validateExamenRespuestasCorrectas = (
   ctx: z.RefinementCtx
 ) => {
   data.preguntas.forEach((pregunta, index) => {
+    if (pregunta.tipoPregunta === "desarrollo") return;
+
+    if (!pregunta.respuestas || pregunta.respuestas.length === 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["preguntas", index, "respuestas"],
+        message:
+          "Cada pregunta de opción múltiple debe tener al menos una respuesta",
+      });
+      return;
+    }
+
     const tieneCorrecta = pregunta.respuestas.some(
       (respuesta) => respuesta.esCorrecta === true
     );
@@ -364,7 +379,10 @@ export const SubmitExamenSchema = z.object({
     .array(
       z.object({
         idPregunta: z.string().min(1, "El idPregunta es obligatorio").trim(),
-        respuestasSeleccionadas: z.array(z.string().min(1).trim()),
+        respuestasSeleccionadas: z
+          .array(z.string().min(1).trim())
+          .default([]),
+        respuestaDesarrollo: z.string().trim().optional(),
       })
     )
     .min(1, "Debés enviar al menos una respuesta"),

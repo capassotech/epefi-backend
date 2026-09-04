@@ -11,8 +11,10 @@ import {
   buildPreguntasExamenRealizado,
   buildPreguntasSnapshot,
   calculateExamenGrade,
+  esPreguntaDesarrollo,
   ExamenPregunta,
   normalizePreguntasPuntos,
+  resolveEstadoExamenRealizado,
 } from "../../utils/examenScoring";
 import { buildExamenRealizadoDetalle } from "../../utils/examenesRealizadosService";
 
@@ -84,6 +86,14 @@ export const submitExamenRealizado = async (
       });
     }
 
+    if (ultimoIntento?.estado === "pendiente_correccion") {
+      return res.status(403).json({
+        codigo: "EVALUACION_PENDIENTE_CORRECCION",
+        error:
+          "Tu último intento está pendiente de corrección. No podés reintentar hasta que se corrija.",
+      });
+    }
+
     if (!progresoFormacion.completo && !esReintentoNoAprobado) {
       return res.status(403).json({
         codigo: "MODULOS_INCOMPLETOS",
@@ -102,30 +112,51 @@ export const submitExamenRealizado = async (
     const esCierreForzado =
       payload.motivoCierre === "tiempo" || payload.motivoCierre === "abandono";
 
-    // Completar respuestas faltantes (sin seleccionar) en cierre por tiempo/abandono
+    // Completar respuestas faltantes en cierre por tiempo/abandono
     const respuestasPorPregunta = new Map(
-      payload.respuestas.map((r) => [r.idPregunta, r.respuestasSeleccionadas])
+      payload.respuestas.map((r) => [
+        r.idPregunta,
+        {
+          respuestasSeleccionadas: r.respuestasSeleccionadas ?? [],
+          respuestaDesarrollo: r.respuestaDesarrollo?.trim() || "",
+        },
+      ])
     );
-    const respuestasNormalizadas = preguntas.map((pregunta) => ({
-      idPregunta: pregunta.id,
-      respuestasSeleccionadas: respuestasPorPregunta.get(pregunta.id) ?? [],
-    }));
+    const respuestasNormalizadas = preguntas.map((pregunta) => {
+      const raw = respuestasPorPregunta.get(pregunta.id);
+      if (esPreguntaDesarrollo(pregunta)) {
+        return {
+          idPregunta: pregunta.id,
+          respuestasSeleccionadas: [] as string[],
+          respuestaDesarrollo: raw?.respuestaDesarrollo || "",
+        };
+      }
+      return {
+        idPregunta: pregunta.id,
+        respuestasSeleccionadas: raw?.respuestasSeleccionadas ?? [],
+      };
+    });
 
     if (!esCierreForzado) {
-      const preguntaIds = new Set(preguntas.map((p) => p.id));
-      const respuestasIds = new Set(
-        respuestasNormalizadas
-          .filter((r) => r.respuestasSeleccionadas.length > 0)
-          .map((r) => r.idPregunta)
-      );
+      for (const pregunta of preguntas) {
+        const respuesta = respuestasNormalizadas.find(
+          (r) => r.idPregunta === pregunta.id
+        );
+        if (!respuesta) {
+          return res.status(400).json({
+            error: "Debés responder todas las preguntas del examen",
+          });
+        }
 
-      if (respuestasIds.size !== preguntaIds.size) {
-        return res.status(400).json({
-          error: "Debés responder todas las preguntas del examen",
-        });
-      }
+        if (esPreguntaDesarrollo(pregunta)) {
+          if (!respuesta.respuestaDesarrollo?.trim()) {
+            return res.status(400).json({
+              error: "Debés responder todas las preguntas del examen",
+            });
+          }
+          continue;
+        }
 
-      for (const respuesta of respuestasNormalizadas) {
         if (respuesta.respuestasSeleccionadas.length === 0) {
           return res.status(400).json({
             error: "Debés responder todas las preguntas del examen",
@@ -142,7 +173,13 @@ export const submitExamenRealizado = async (
         });
       }
 
-      const opcionesValidas = new Set(pregunta.respuestas.map((r) => r.id));
+      if (esPreguntaDesarrollo(pregunta)) {
+        continue;
+      }
+
+      const opcionesValidas = new Set(
+        (pregunta.respuestas || []).map((r) => r.id)
+      );
       for (const opcionId of respuesta.respuestasSeleccionadas) {
         if (!opcionesValidas.has(opcionId)) {
           return res.status(400).json({
@@ -152,7 +189,9 @@ export const submitExamenRealizado = async (
       }
 
       if (!esCierreForzado) {
-        const correctas = pregunta.respuestas.filter((r) => r.esCorrecta).length;
+        const correctas = (pregunta.respuestas || []).filter(
+          (r) => r.esCorrecta
+        ).length;
         if (correctas === 1 && respuesta.respuestasSeleccionadas.length !== 1) {
           return res.status(400).json({
             error: `La pregunta ${respuesta.idPregunta} admite una sola respuesta`,
@@ -180,6 +219,7 @@ export const submitExamenRealizado = async (
       preguntas,
       respuestasNormalizadas
     );
+    const estado = resolveEstadoExamenRealizado(preguntas);
 
     const intentoNumero = (ultimoIntento?.intentoNumero || 0) + 1;
     const now = new Date();
@@ -197,6 +237,7 @@ export const submitExamenRealizado = async (
       porcentajeAciertos: calificacion.porcentajeAciertos,
       nota: calificacion.nota,
       aprobado: calificacion.aprobado,
+      estado,
       intentoNumero,
       fechaRealizacion: now,
       motivoCierre: payload.motivoCierre ?? "envio",
@@ -210,9 +251,11 @@ export const submitExamenRealizado = async (
         ? "Se agotó el tiempo. El intento quedó registrado."
         : payload.motivoCierre === "abandono"
           ? "Cerraste la evaluación. El intento quedó registrado."
-          : calificacion.aprobado
-            ? "Felicitaciones, aprobaste la evaluación"
-            : "No aprobaste la evaluación. Podés reintentar cuando quieras";
+          : estado === "pendiente_correccion"
+            ? "Evaluación enviada. Quedó pendiente de corrección."
+            : calificacion.aprobado
+              ? "Felicitaciones, aprobaste la evaluación"
+              : "No aprobaste la evaluación. Podés reintentar cuando quieras";
 
     return res.status(201).json({
       message: mensajePorMotivo,
@@ -224,7 +267,9 @@ export const submitExamenRealizado = async (
         porcentajeAciertos: calificacion.porcentajeAciertos,
         nota: calificacion.nota,
         aprobado: calificacion.aprobado,
-        puedeReintentar: !calificacion.aprobado,
+        estado,
+        puedeReintentar:
+          estado === "completado" && !calificacion.aprobado,
       },
     });
   } catch (error) {
@@ -301,7 +346,9 @@ export const getMisIntentosExamen = async (
       totalIntentos: intentos.length,
       ultimoIntento: ultimo,
       intentos,
-      puedeReintentar: ultimo ? ultimo.aprobado !== true : true,
+      puedeReintentar: ultimo
+        ? ultimo.aprobado !== true && ultimo.estado !== "pendiente_correccion"
+        : true,
     });
   } catch (error) {
     console.error("getMisIntentosExamen error:", error);
