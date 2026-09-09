@@ -89,9 +89,12 @@ export const getExamenEstadoFormacion = async (
     const examenDisponible = formacionCompleta && examenId !== null;
     const yaAprobo = ultimoIntento?.aprobado === true;
     const tieneIntentoPrevio = ultimoIntento !== null;
+    const pendienteCorreccion =
+      ultimoIntento?.estado === "pendiente_correccion";
     const puedeRealizar =
       examenId !== null &&
       !yaAprobo &&
+      !pendienteCorreccion &&
       (formacionCompleta || tieneIntentoPrevio);
 
     return res.json({
@@ -121,10 +124,18 @@ export const getExamenEstadoFormacion = async (
             porcentajeAciertos: ultimoIntento.porcentajeAciertos,
             intentoNumero: ultimoIntento.intentoNumero,
             fechaRealizacion: ultimoIntento.fechaRealizacion,
+            estado:
+              ultimoIntento.estado === "pendiente_correccion"
+                ? "pendiente_correccion"
+                : "completado",
           }
         : null,
       puedeRealizar,
-      puedeReintentar: examenId !== null && !yaAprobo && tieneIntentoPrevio,
+      puedeReintentar:
+        examenId !== null &&
+        !yaAprobo &&
+        !pendienteCorreccion &&
+        tieneIntentoPrevio,
     });
   } catch (error) {
     console.error("getExamenEstadoFormacion error:", error);
@@ -172,6 +183,14 @@ export const getExamenParaAlumno = async (
           aprobado: true,
           intentoNumero: ultimoIntento.intentoNumero,
         },
+      });
+    }
+
+    if (ultimoIntento?.estado === "pendiente_correccion") {
+      return res.status(403).json({
+        codigo: "EVALUACION_PENDIENTE_CORRECCION",
+        error:
+          "Tu último intento está pendiente de corrección. Vas a poder reintentar una vez que se corrija.",
       });
     }
 
