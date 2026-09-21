@@ -388,6 +388,25 @@ export const SubmitExamenSchema = z.object({
     .min(1, "Debés enviar al menos una respuesta"),
 });
 
+/** Corrección manual de preguntas de desarrollo (admin). */
+export const CorregirExamenSchema = z.object({
+  correcciones: z
+    .array(
+      z.object({
+        idPregunta: z.string().min(1, "El idPregunta es obligatorio").trim(),
+        puntosObtenidos: z
+          .number({ message: "Los puntos deben ser un número" })
+          .min(0, "Los puntos no pueden ser negativos"),
+        comentario: z
+          .string()
+          .trim()
+          .max(2000, "El comentario no puede exceder 2000 caracteres")
+          .optional(),
+      })
+    )
+    .min(1, "Debés enviar al menos una corrección"),
+});
+
 export type ValidatedUser = z.infer<typeof UserSchema>;
 export type ValidatedUpdateUser = z.infer<typeof UpdateUserSchema>;
 export type ValidatedUpdateProfile = z.infer<typeof UpdateProfileSchema>;
@@ -400,6 +419,7 @@ export type ValidatedUpdateMateria = z.infer<typeof UpdateMateriaSchema>;
 export type ValidatedExamen = z.infer<typeof ExamenSchema>;
 export type ValidatedUpdateExamen = z.infer<typeof UpdateExamenSchema>;
 export type ValidatedSubmitExamen = z.infer<typeof SubmitExamenSchema>;
+export type ValidatedCorregirExamen = z.infer<typeof CorregirExamenSchema>;
 export interface Materia {
   id: string;
   nombre: string;

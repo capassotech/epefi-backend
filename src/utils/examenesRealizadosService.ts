@@ -29,6 +29,7 @@ export type ExamenesRealizadosFilters = {
   idAlumno?: string;
   searchAlumno?: string;
   aprobado?: boolean;
+  estado?: "completado" | "pendiente_correccion";
 };
 
 export type ExamenRealizadoEnriched = {
@@ -97,6 +98,16 @@ export const fetchExamenesRealizadosEnriched = async (
 
   if (filters.aprobado !== undefined) {
     records = records.filter((r) => r.aprobado === filters.aprobado);
+  }
+
+  if (filters.estado) {
+    records = records.filter((r) => {
+      const estado =
+        r.estado === "pendiente_correccion"
+          ? "pendiente_correccion"
+          : "completado";
+      return estado === filters.estado;
+    });
   }
 
   const alumnoIds = [...new Set(records.map((r) => r.idAlumno).filter(Boolean))];
@@ -381,8 +392,15 @@ const buildPreguntaDetalle = (
       }>,
       respuestasCorrectas: [] as Array<{ id: string; texto: string }>,
       respuestaDesarrollo: textoDesarrollo,
+      comentario:
+        typeof savedPregunta?.comentario === "string"
+          ? savedPregunta.comentario
+          : "",
       textoRespuestasSeleccionadas: textoDesarrollo || "Sin respuesta",
-      textoRespuestasCorrectas: "Pendiente de corrección",
+      textoRespuestasCorrectas:
+        typeof savedPregunta?.puntosObtenidos === "number"
+          ? "Corregida"
+          : "Pendiente de corrección",
       opciones: [] as Array<{
         id: string;
         texto: string;
@@ -683,12 +701,19 @@ export const parseExamenesRealizadosFilters = (
     aprobado = false;
   }
 
+  const estadoParam = (query.estado as string | undefined)?.trim().toLowerCase();
+  const estado =
+    estadoParam === "pendiente_correccion" || estadoParam === "completado"
+      ? (estadoParam as "pendiente_correccion" | "completado")
+      : undefined;
+
   return {
     idFormacion: idFormacion || undefined,
     idExamen: idExamen || undefined,
     idAlumno: idAlumno || undefined,
     searchAlumno: searchAlumno || undefined,
     aprobado,
+    estado,
   };
 };
 
