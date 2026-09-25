@@ -13,18 +13,21 @@ const examenesRealizadosCollection = firestore.collection("examenes_realizados")
 export const intentoTieneSnapshot = (record: Record<string, unknown>): boolean => {
   const preguntas = record.preguntas;
   if (Array.isArray(preguntas) && preguntas.length > 0) {
-    const conOpciones = preguntas.some((p: any) => {
+    const usable = preguntas.some((p: any) => {
+      if (p?.tipoPregunta === "desarrollo") return true;
+      if (typeof p?.respuestaDesarrollo === "string") return true;
       const respuestas = p?.respuestas ?? p?.opciones;
       return Array.isArray(respuestas) && respuestas.length > 0;
     });
-    if (conOpciones) return true;
+    if (usable) return true;
   }
 
   const snapshot = record.preguntasSnapshot;
   if (Array.isArray(snapshot) && snapshot.length > 0) {
-    return snapshot.some(
-      (p: any) => Array.isArray(p?.respuestas) && p.respuestas.length > 0
-    );
+    return snapshot.some((p: any) => {
+      if (p?.tipoPregunta === "desarrollo") return true;
+      return Array.isArray(p?.respuestas) && p.respuestas.length > 0;
+    });
   }
 
   return false;
@@ -104,6 +107,9 @@ const normalizeRespuestasAlumno = (raw: unknown): RespuestaAlumno[] => {
       return {
         idPregunta,
         respuestasSeleccionadas: seleccionadas.filter(Boolean),
+        ...(typeof item?.respuestaDesarrollo === "string"
+          ? { respuestaDesarrollo: item.respuestaDesarrollo }
+          : {}),
       };
     })
     .filter((r) => r.idPregunta);

@@ -8,7 +8,9 @@ import {
 } from "../../utils/formacionProgress";
 import {
   ExamenPregunta,
+  MAX_INTENTOS_EXAMEN,
   mapPreguntaForStudent,
+  mensajeIntentosAgotados,
   shuffleArray,
 } from "../../utils/examenScoring";
 
@@ -32,13 +34,13 @@ const getExamenDocByFormacion = async (idFormacion: string) => {
   return snapshot.docs[0];
 };
 
-const getUltimoIntento = async (idAlumno: string, idExamen: string) => {
+const getIntentosAlumno = async (idAlumno: string, idExamen: string) => {
   const snapshot = await examenesRealizadosCollection
     .where("idAlumno", "==", idAlumno)
     .where("idExamen", "==", idExamen)
     .get();
 
-  if (snapshot.empty) return null;
+  if (snapshot.empty) return { ultimo: null as any, total: 0 };
 
   const intentos = snapshot.docs
     .map((doc) => formatFirestoreDoc(doc))
@@ -48,7 +50,7 @@ const getUltimoIntento = async (idAlumno: string, idExamen: string) => {
       return bDate - aDate;
     });
 
-  return intentos[0];
+  return { ultimo: intentos[0], total: snapshot.size };
 };
 
 export const getExamenEstadoFormacion = async (
@@ -81,17 +83,26 @@ export const getExamenEstadoFormacion = async (
     const examenData = examenDoc?.data();
 
     let ultimoIntento = null;
+    let intentosUsados = 0;
     if (examenId) {
-      ultimoIntento = await getUltimoIntento(uid, examenId);
+      const intentos = await getIntentosAlumno(uid, examenId);
+      ultimoIntento = intentos.ultimo;
+      intentosUsados = intentos.total;
     }
 
     const formacionCompleta = progresoFormacion.completo;
     const examenDisponible = formacionCompleta && examenId !== null;
     const yaAprobo = ultimoIntento?.aprobado === true;
     const tieneIntentoPrevio = ultimoIntento !== null;
+    const pendienteCorreccion =
+      ultimoIntento?.estado === "pendiente_correccion";
+    const intentosAgotados =
+      intentosUsados >= MAX_INTENTOS_EXAMEN && !yaAprobo && !pendienteCorreccion;
     const puedeRealizar =
       examenId !== null &&
       !yaAprobo &&
+      !pendienteCorreccion &&
+      !intentosAgotados &&
       (formacionCompleta || tieneIntentoPrevio);
 
     return res.json({
@@ -121,10 +132,23 @@ export const getExamenEstadoFormacion = async (
             porcentajeAciertos: ultimoIntento.porcentajeAciertos,
             intentoNumero: ultimoIntento.intentoNumero,
             fechaRealizacion: ultimoIntento.fechaRealizacion,
+            estado:
+              ultimoIntento.estado === "pendiente_correccion"
+                ? "pendiente_correccion"
+                : "completado",
           }
         : null,
       puedeRealizar,
-      puedeReintentar: examenId !== null && !yaAprobo && tieneIntentoPrevio,
+      intentosUsados,
+      intentosMaximos: MAX_INTENTOS_EXAMEN,
+      intentosAgotados,
+      mensajeBloqueo: intentosAgotados ? mensajeIntentosAgotados() : null,
+      puedeReintentar:
+        examenId !== null &&
+        !yaAprobo &&
+        !pendienteCorreccion &&
+        !intentosAgotados &&
+        tieneIntentoPrevio,
     });
   } catch (error) {
     console.error("getExamenEstadoFormacion error:", error);
@@ -159,7 +183,8 @@ export const getExamenParaAlumno = async (
       });
     }
 
-    const ultimoIntento = await getUltimoIntento(uid, idExamen);
+    const { ultimo: ultimoIntento, total: intentosUsados } =
+      await getIntentosAlumno(uid, idExamen);
     const esReintentoNoAprobado =
       ultimoIntento !== null && ultimoIntento.aprobado !== true;
 
@@ -172,6 +197,23 @@ export const getExamenParaAlumno = async (
           aprobado: true,
           intentoNumero: ultimoIntento.intentoNumero,
         },
+      });
+    }
+
+    if (ultimoIntento?.estado === "pendiente_correccion") {
+      return res.status(403).json({
+        codigo: "EVALUACION_PENDIENTE_CORRECCION",
+        error:
+          "Tu último intento está pendiente de corrección. Vas a poder reintentar una vez que se corrija.",
+      });
+    }
+
+    if (intentosUsados >= MAX_INTENTOS_EXAMEN) {
+      return res.status(403).json({
+        codigo: "INTENTOS_AGOTADOS",
+        error: mensajeIntentosAgotados(),
+        intentosUsados,
+        intentosMaximos: MAX_INTENTOS_EXAMEN,
       });
     }
 

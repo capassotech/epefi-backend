@@ -4,7 +4,7 @@ import {
   AuthenticatedRequest,
 } from "../../middleware/authMiddleware";
 import { validateBody, validateParams } from "../../middleware/zodValidation";
-import { SubmitExamenSchema } from "../../types/schemas";
+import { CorregirExamenSchema, SubmitExamenSchema } from "../../types/schemas";
 import { z } from "zod";
 import {
   getMiExamenRealizadoDetalle,
@@ -12,6 +12,7 @@ import {
   submitExamenRealizado,
 } from "./controller";
 import {
+  corregirExamenRealizadoAdmin,
   exportExamenesRealizadosAdmin,
   getExamenRealizadoDetalleAdmin,
   getExamenesRealizadosAdmin,
@@ -40,9 +41,19 @@ const detalleAdminHandler = (req: Request, res: Response) =>
 const exportAdminHandler = (req: Request, res: Response) =>
   exportExamenesRealizadosAdmin(req as AuthenticatedRequest, res);
 
+const corregirAdminHandler = (req: Request, res: Response) =>
+  corregirExamenRealizadoAdmin(req as AuthenticatedRequest, res);
+
 // ========== ADMIN (rutas específicas antes de /:id) ==========
 router.get("/export", authMiddleware, exportAdminHandler);
 
+router.post(
+  "/:id/corregir",
+  authMiddleware,
+  validateParams(IdParamSchema),
+  validateBody(CorregirExamenSchema),
+  corregirAdminHandler
+);
 router.get(
   "/detalle/:id",
   authMiddleware,

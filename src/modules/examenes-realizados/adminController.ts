@@ -1,12 +1,21 @@
 import { Response } from "express";
+import { firestore } from "../../config/firebase";
 import type { AuthenticatedRequest } from "../../middleware/authMiddleware";
+import type { ValidatedCorregirExamen } from "../../types/schemas";
 import { validateUser } from "../../utils/utils";
+import {
+  computeGradeFromPuntosObtenidos,
+  esPreguntaDesarrollo,
+  roundPuntos,
+} from "../../utils/examenScoring";
 import {
   buildExamenRealizadoDetalle,
   fetchExamenesRealizadosEnriched,
   parseExamenesRealizadosFilters,
   recordsToCsv,
 } from "../../utils/examenesRealizadosService";
+
+const examenesRealizadosCollection = firestore.collection("examenes_realizados");
 
 const requireAdmin = async (
   req: AuthenticatedRequest,
@@ -75,6 +84,141 @@ export const getExamenRealizadoDetalleAdmin = async (
   } catch (error) {
     console.error("getExamenRealizadoDetalleAdmin error:", error);
     return res.status(500).json({ error: "Error al obtener detalle del examen" });
+  }
+};
+
+/**
+ * Corrige preguntas de desarrollo: asigna puntaje + comentario opcional,
+ * recalcula nota final y pasa el intento a estado "completado".
+ */
+export const corregirExamenRealizadoAdmin = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    if (!(await requireAdmin(req, res))) return;
+
+    const { id } = req.params;
+    const payload: ValidatedCorregirExamen = req.body;
+
+    const docRef = examenesRealizadosCollection.doc(id);
+    const doc = await docRef.get();
+    if (!doc.exists) {
+      return res.status(404).json({ error: "Registro no encontrado" });
+    }
+
+    const record = doc.data() || {};
+    if (record.estado !== "pendiente_correccion") {
+      return res.status(400).json({
+        error: "Solo se pueden corregir exámenes en estado pendiente de corrección",
+      });
+    }
+
+    const preguntas = Array.isArray(record.preguntas) ? [...record.preguntas] : [];
+    if (preguntas.length === 0) {
+      return res.status(400).json({
+        error: "El intento no tiene preguntas guardadas para corregir",
+      });
+    }
+
+    const desarrolloIds = preguntas
+      .filter((p: any) => esPreguntaDesarrollo(p))
+      .map((p: any) => String(p.id ?? p.idPregunta ?? "").trim())
+      .filter(Boolean);
+
+    if (desarrolloIds.length === 0) {
+      return res.status(400).json({
+        error: "Este examen no tiene preguntas de desarrollo para corregir",
+      });
+    }
+
+    const correccionesById = new Map(
+      payload.correcciones.map((c) => [c.idPregunta, c])
+    );
+
+    for (const desarrolloId of desarrolloIds) {
+      if (!correccionesById.has(desarrolloId)) {
+        return res.status(400).json({
+          error: `Falta corregir la pregunta de desarrollo: ${desarrolloId}`,
+        });
+      }
+    }
+
+    for (const correccion of payload.correcciones) {
+      if (!desarrolloIds.includes(correccion.idPregunta)) {
+        return res.status(400).json({
+          error: `La pregunta ${correccion.idPregunta} no es de desarrollo`,
+        });
+      }
+    }
+
+    const preguntasActualizadas = preguntas.map((pregunta: any) => {
+      const preguntaId = String(pregunta.id ?? pregunta.idPregunta ?? "").trim();
+      if (!esPreguntaDesarrollo(pregunta)) {
+        return pregunta;
+      }
+
+      const correccion = correccionesById.get(preguntaId);
+      if (!correccion) return pregunta;
+
+      const maxPuntos = roundPuntos(Number(pregunta.puntos ?? 0));
+      const puntosObtenidos = roundPuntos(correccion.puntosObtenidos);
+
+      if (puntosObtenidos > maxPuntos) {
+        throw new Error(
+          `Los puntos de la pregunta ${preguntaId} no pueden superar ${maxPuntos}`
+        );
+      }
+
+      const comentario = (correccion.comentario || "").trim();
+      const acertada = maxPuntos > 0 && puntosObtenidos >= maxPuntos;
+
+      return {
+        ...pregunta,
+        puntosObtenidos,
+        acertada,
+        esCorrecta: acertada,
+        ...(comentario ? { comentario } : { comentario: "" }),
+      };
+    });
+
+    let puntosObtenidosTotal = 0;
+    let respuestasCorrectas = 0;
+    for (const pregunta of preguntasActualizadas) {
+      const pts = Number(pregunta.puntosObtenidos ?? 0);
+      puntosObtenidosTotal += pts;
+      if (pregunta.acertada === true || pregunta.esCorrecta === true) {
+        respuestasCorrectas++;
+      }
+    }
+    puntosObtenidosTotal = roundPuntos(puntosObtenidosTotal);
+    const grade = computeGradeFromPuntosObtenidos(puntosObtenidosTotal);
+
+    await docRef.update({
+      preguntas: preguntasActualizadas,
+      puntosObtenidos: grade.puntosObtenidos,
+      porcentajeAciertos: grade.porcentajeAciertos,
+      nota: grade.nota,
+      aprobado: grade.aprobado,
+      respuestasCorrectas,
+      estado: "completado",
+      fechaCorreccion: new Date(),
+      corregidoPor: req.user.uid,
+    });
+
+    const detalle = await buildExamenRealizadoDetalle(id);
+    return res.json({
+      message: "Examen corregido correctamente",
+      resultado: detalle,
+    });
+  } catch (error) {
+    console.error("corregirExamenRealizadoAdmin error:", error);
+    const message =
+      error instanceof Error ? error.message : "Error al corregir el examen";
+    if (message.includes("no pueden superar")) {
+      return res.status(400).json({ error: message });
+    }
+    return res.status(500).json({ error: "Error al corregir el examen" });
   }
 };
 

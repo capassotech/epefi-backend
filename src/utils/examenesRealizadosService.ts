@@ -2,12 +2,15 @@ import { firestore } from "../config/firebase";
 import { formatFirestoreDoc } from "./utils";
 import {
   computeGradeFromPuntosObtenidos,
+  esPreguntaDesarrollo,
   ExamenPregunta,
   getPreguntaPuntos,
   getTipoInputForQuestion,
   isQuestionCorrect,
   normalizePreguntasPuntos,
+  resolveTipoPregunta,
   RespuestaAlumno,
+  TipoPregunta,
 } from "./examenScoring";
 import {
   findPreguntasFromExamenHistorial,
@@ -26,6 +29,7 @@ export type ExamenesRealizadosFilters = {
   idAlumno?: string;
   searchAlumno?: string;
   aprobado?: boolean;
+  estado?: "completado" | "pendiente_correccion";
 };
 
 export type ExamenRealizadoEnriched = {
@@ -42,7 +46,10 @@ export type ExamenRealizadoEnriched = {
   respuestasCorrectas: number;
   totalPreguntas: number;
   aprobado: boolean;
+  /** Etiqueta de aprobación para CSV / listado legacy. */
   estado: "Aprobado" | "No aprobado";
+  /** Estado de corrección del intento (schema examenes_realizados). */
+  estadoCorreccion: "completado" | "pendiente_correccion";
   intentoNumero: number;
   fechaRealizacion: string;
 };
@@ -93,6 +100,16 @@ export const fetchExamenesRealizadosEnriched = async (
     records = records.filter((r) => r.aprobado === filters.aprobado);
   }
 
+  if (filters.estado) {
+    records = records.filter((r) => {
+      const estado =
+        r.estado === "pendiente_correccion"
+          ? "pendiente_correccion"
+          : "completado";
+      return estado === filters.estado;
+    });
+  }
+
   const alumnoIds = [...new Set(records.map((r) => r.idAlumno).filter(Boolean))];
   const examenIds = [...new Set(records.map((r) => r.idExamen).filter(Boolean))];
   const formacionIds = [...new Set(records.map((r) => r.idFormacion).filter(Boolean))];
@@ -140,6 +157,10 @@ export const fetchExamenesRealizadosEnriched = async (
       totalPreguntas: Number(record.totalPreguntas ?? 0),
       aprobado: record.aprobado === true,
       estado: record.aprobado === true ? "Aprobado" : "No aprobado",
+      estadoCorreccion:
+        record.estado === "pendiente_correccion"
+          ? "pendiente_correccion"
+          : "completado",
       intentoNumero: Number(record.intentoNumero ?? 1),
       fechaRealizacion: record.fechaRealizacion || "",
     };
@@ -178,7 +199,13 @@ const normalizeRespuestasAlumno = (raw: unknown): RespuestaAlumno[] => {
         seleccionadas = [String(item.respuestaId).trim()];
       }
 
-      return { idPregunta, respuestasSeleccionadas: seleccionadas.filter(Boolean) };
+      return {
+        idPregunta,
+        respuestasSeleccionadas: seleccionadas.filter(Boolean),
+        ...(typeof item?.respuestaDesarrollo === "string"
+          ? { respuestaDesarrollo: item.respuestaDesarrollo }
+          : {}),
+      };
     })
     .filter((r) => r.idPregunta);
 };
@@ -188,6 +215,10 @@ const asPreguntaSnapshot = (raw: unknown): ExamenPregunta | null => {
   const p = raw as Record<string, unknown>;
   const id = String(p.id ?? p.idPregunta ?? "").trim();
   if (!id) return null;
+
+  const tipoPregunta = resolveTipoPregunta({
+    tipoPregunta: p.tipoPregunta as TipoPregunta | undefined,
+  });
 
   const respuestasRaw = Array.isArray(p.respuestas)
     ? p.respuestas
@@ -199,12 +230,22 @@ const asPreguntaSnapshot = (raw: unknown): ExamenPregunta | null => {
     id,
     texto: String(p.texto ?? p.pregunta ?? ""),
     puntos: typeof p.puntos === "number" ? p.puntos : undefined,
-    respuestas: respuestasRaw.map((r: any) => ({
-      id: String(r?.id ?? ""),
-      texto: String(r?.texto ?? r?.text ?? ""),
-      esCorrecta: Boolean(r?.esCorrecta ?? r?.correcta ?? r?.isCorrect),
-    })),
+    tipoPregunta,
+    respuestas:
+      tipoPregunta === "desarrollo"
+        ? []
+        : respuestasRaw.map((r: any) => ({
+            id: String(r?.id ?? ""),
+            texto: String(r?.texto ?? r?.text ?? ""),
+            esCorrecta: Boolean(r?.esCorrecta ?? r?.correcta ?? r?.isCorrect),
+          })),
   };
+};
+
+const isValidResolvedPregunta = (q: ExamenPregunta | null): q is ExamenPregunta => {
+  if (!q) return false;
+  if (esPreguntaDesarrollo(q)) return true;
+  return q.respuestas.length > 0;
 };
 
 /**
@@ -220,7 +261,7 @@ const resolvePreguntasDelIntento = async (
   const fromSavedPreguntas = Array.isArray(record.preguntas)
     ? record.preguntas
         .map(asPreguntaSnapshot)
-        .filter((q): q is ExamenPregunta => q != null && q.respuestas.length > 0)
+        .filter(isValidResolvedPregunta)
     : [];
   if (fromSavedPreguntas.length > 0) {
     return { preguntas: fromSavedPreguntas, fromLiveMatch: false };
@@ -229,7 +270,7 @@ const resolvePreguntasDelIntento = async (
   const fromSnapshot = Array.isArray(record.preguntasSnapshot)
     ? record.preguntasSnapshot
         .map(asPreguntaSnapshot)
-        .filter((q): q is ExamenPregunta => q != null && q.respuestas.length > 0)
+        .filter(isValidResolvedPregunta)
     : [];
   if (fromSnapshot.length > 0) {
     return { preguntas: fromSnapshot, fromLiveMatch: false };
@@ -301,12 +342,73 @@ const buildPreguntaDetalle = (
   gradeHints?: {
     porcentajeAciertos?: number;
     puntosObtenidosTotal?: number;
-  }
+  },
+  respuestaDesarrollo?: string
 ) => {
+  const tipoPregunta = resolveTipoPregunta(pregunta);
+  const esDesarrollo = tipoPregunta === "desarrollo";
   const puntos =
     typeof savedPregunta?.puntos === "number"
       ? savedPregunta.puntos
       : getPreguntaPuntos(pregunta, index, totalPreguntas);
+
+  if (esDesarrollo) {
+    const textoDesarrollo =
+      (typeof respuestaDesarrollo === "string" && respuestaDesarrollo) ||
+      (typeof savedPregunta?.respuestaDesarrollo === "string"
+        ? savedPregunta.respuestaDesarrollo
+        : "") ||
+      "";
+
+    const puntosObtenidos =
+      typeof savedPregunta?.puntosObtenidos === "number"
+        ? savedPregunta.puntosObtenidos
+        : 0;
+
+    const preguntaAcertada =
+      typeof savedPregunta?.acertada === "boolean"
+        ? savedPregunta.acertada
+        : typeof savedPregunta?.esCorrecta === "boolean"
+          ? savedPregunta.esCorrecta
+          : false;
+
+    return {
+      orden: index + 1,
+      id: pregunta.id,
+      texto: pregunta.texto,
+      puntos,
+      puntosObtenidos,
+      tipoPregunta,
+      tipoInput: "textarea" as const,
+      esCorrecta: preguntaAcertada === true,
+      acertada: preguntaAcertada === true,
+      preguntaNoDisponible: false,
+      respuestas: [] as Array<{ id: string; texto: string; esCorrecta: boolean }>,
+      idsRespuestasSeleccionadas: [] as string[],
+      respuestasSeleccionadas: [] as Array<{
+        id: string;
+        texto: string;
+        esCorrecta: boolean;
+      }>,
+      respuestasCorrectas: [] as Array<{ id: string; texto: string }>,
+      respuestaDesarrollo: textoDesarrollo,
+      comentario:
+        typeof savedPregunta?.comentario === "string"
+          ? savedPregunta.comentario
+          : "",
+      textoRespuestasSeleccionadas: textoDesarrollo || "Sin respuesta",
+      textoRespuestasCorrectas:
+        typeof savedPregunta?.puntosObtenidos === "number"
+          ? "Corregida"
+          : "Pendiente de corrección",
+      opciones: [] as Array<{
+        id: string;
+        texto: string;
+        esCorrecta: boolean;
+        seleccionadaPorAlumno: boolean;
+      }>,
+    };
+  }
 
   const opciones = pregunta.respuestas.map((opcion) => ({
     id: opcion.id,
@@ -376,7 +478,8 @@ const buildPreguntaDetalle = (
     texto: pregunta.texto,
     puntos,
     puntosObtenidos,
-    tipoInput: getTipoInputForQuestion(pregunta.respuestas),
+    tipoPregunta,
+    tipoInput: getTipoInputForQuestion(pregunta.respuestas, tipoPregunta),
     esCorrecta: preguntaAcertada === true,
     acertada: preguntaAcertada === true,
     preguntaNoDisponible: sinOpciones,
@@ -491,13 +594,20 @@ export const buildExamenRealizadoDetalle = async (id: string) => {
         ? fromRespuestas.respuestasSeleccionadas
         : fromSavedSeleccion;
 
+    const respuestaDesarrollo =
+      fromRespuestas?.respuestaDesarrollo ||
+      (typeof saved?.respuestaDesarrollo === "string"
+        ? saved.respuestaDesarrollo
+        : undefined);
+
     return buildPreguntaDetalle(
       pregunta,
       index,
       preguntasExamen.length,
       seleccionadasIds,
       saved,
-      gradeHints
+      gradeHints,
+      respuestaDesarrollo
     );
   });
 
@@ -557,6 +667,10 @@ export const buildExamenRealizadoDetalle = async (id: string) => {
     totalPreguntas,
     aprobado,
     estado: aprobado ? "Aprobado" : "No aprobado",
+    estadoCorreccion:
+      record.estado === "pendiente_correccion"
+        ? "pendiente_correccion"
+        : "completado",
     intentoNumero: Number(record.intentoNumero ?? 1),
     totalIntentos,
     fechaRealizacion: record.fechaRealizacion || "",
@@ -587,12 +701,19 @@ export const parseExamenesRealizadosFilters = (
     aprobado = false;
   }
 
+  const estadoParam = (query.estado as string | undefined)?.trim().toLowerCase();
+  const estado =
+    estadoParam === "pendiente_correccion" || estadoParam === "completado"
+      ? (estadoParam as "pendiente_correccion" | "completado")
+      : undefined;
+
   return {
     idFormacion: idFormacion || undefined,
     idExamen: idExamen || undefined,
     idAlumno: idAlumno || undefined,
     searchAlumno: searchAlumno || undefined,
     aprobado,
+    estado,
   };
 };
 
