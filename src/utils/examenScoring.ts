@@ -7,6 +7,12 @@ export const NOTA_MINIMA_APROBACION = 7;
 /** Puntos totales que debe sumar el examen. */
 export const PUNTOS_TOTAL_EXAMEN = 100;
 
+/** Intentos máximos por alumno y examen (incluye envío, tiempo agotado y abandono). */
+export const MAX_INTENTOS_EXAMEN = 3;
+
+export const mensajeIntentosAgotados = (): string =>
+  `Alcanzaste el máximo de ${MAX_INTENTOS_EXAMEN} intentos. La evaluación quedó bloqueada y ya no podés volver a realizarla.`;
+
 export type TipoPregunta = "opcion_multiple" | "desarrollo";
 
 export type EstadoExamenRealizado = "completado" | "pendiente_correccion";

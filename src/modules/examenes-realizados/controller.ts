@@ -13,6 +13,8 @@ import {
   calculateExamenGrade,
   esPreguntaDesarrollo,
   ExamenPregunta,
+  MAX_INTENTOS_EXAMEN,
+  mensajeIntentosAgotados,
   normalizePreguntasPuntos,
   resolveEstadoExamenRealizado,
 } from "../../utils/examenScoring";
@@ -76,6 +78,7 @@ export const submitExamenRealizado = async (
       );
 
     const ultimoIntento = intentosOrdenados[0];
+    const intentosUsados = intentosPrevios.size;
     const esReintentoNoAprobado =
       ultimoIntento !== undefined && ultimoIntento.aprobado !== true;
 
@@ -91,6 +94,15 @@ export const submitExamenRealizado = async (
         codigo: "EVALUACION_PENDIENTE_CORRECCION",
         error:
           "Tu último intento está pendiente de corrección. No podés reintentar hasta que se corrija.",
+      });
+    }
+
+    if (intentosUsados >= MAX_INTENTOS_EXAMEN) {
+      return res.status(403).json({
+        codigo: "INTENTOS_AGOTADOS",
+        error: mensajeIntentosAgotados(),
+        intentosUsados,
+        intentosMaximos: MAX_INTENTOS_EXAMEN,
       });
     }
 
@@ -222,6 +234,7 @@ export const submitExamenRealizado = async (
     const estado = resolveEstadoExamenRealizado(preguntas);
 
     const intentoNumero = (ultimoIntento?.intentoNumero || 0) + 1;
+    const ahoraAgotoIntentos = intentosUsados + 1 >= MAX_INTENTOS_EXAMEN;
     const now = new Date();
 
     const registro = {
@@ -246,16 +259,25 @@ export const submitExamenRealizado = async (
     const saved = await examenesRealizadosCollection.add(registro);
     const savedDoc = await saved.get();
 
+    const puedeReintentar =
+      estado === "completado" && !calificacion.aprobado && !ahoraAgotoIntentos;
+
     const mensajePorMotivo =
       payload.motivoCierre === "tiempo"
-        ? "Se agotó el tiempo. El intento quedó registrado."
+        ? ahoraAgotoIntentos
+          ? "Se agotó el tiempo. El intento quedó registrado y alcanzaste el máximo de intentos."
+          : "Se agotó el tiempo. El intento quedó registrado."
         : payload.motivoCierre === "abandono"
-          ? "Cerraste la evaluación. El intento quedó registrado."
+          ? ahoraAgotoIntentos
+            ? "Cerraste la evaluación. El intento quedó registrado y alcanzaste el máximo de intentos."
+            : "Cerraste la evaluación. El intento quedó registrado."
           : estado === "pendiente_correccion"
             ? "Evaluación enviada. Quedó pendiente de corrección."
             : calificacion.aprobado
               ? "Felicitaciones, aprobaste la evaluación"
-              : "No aprobaste la evaluación. Podés reintentar cuando quieras";
+              : ahoraAgotoIntentos
+                ? mensajeIntentosAgotados()
+                : "No aprobaste la evaluación. Podés reintentar cuando quieras";
 
     return res.status(201).json({
       message: mensajePorMotivo,
@@ -268,8 +290,10 @@ export const submitExamenRealizado = async (
         nota: calificacion.nota,
         aprobado: calificacion.aprobado,
         estado,
-        puedeReintentar:
-          estado === "completado" && !calificacion.aprobado,
+        intentoNumero,
+        intentosUsados: intentoNumero,
+        intentosMaximos: MAX_INTENTOS_EXAMEN,
+        puedeReintentar,
       },
     });
   } catch (error) {
@@ -347,7 +371,9 @@ export const getMisIntentosExamen = async (
       ultimoIntento: ultimo,
       intentos,
       puedeReintentar: ultimo
-        ? ultimo.aprobado !== true && ultimo.estado !== "pendiente_correccion"
+        ? ultimo.aprobado !== true &&
+          ultimo.estado !== "pendiente_correccion" &&
+          intentos.length < MAX_INTENTOS_EXAMEN
         : true,
     });
   } catch (error) {
