@@ -23,6 +23,10 @@ export type ExamenPregunta = {
   puntos?: number;
   /** Por defecto opcion_multiple (exámenes legacy). */
   tipoPregunta?: TipoPregunta;
+  /** URL pública de la imagen asociada (Firebase Storage). */
+  imagenUrl?: string;
+  /** Path en Storage para referencia/borrado. */
+  imagenPath?: string;
   respuestas: Array<{
     id: string;
     texto: string;
@@ -95,12 +99,18 @@ export const getTipoInputForQuestion = (
 
 export const mapPreguntaForStudent = (pregunta: ExamenPregunta) => {
   const tipoPregunta = resolveTipoPregunta(pregunta);
+  const imagenUrl =
+    typeof pregunta.imagenUrl === "string" && pregunta.imagenUrl.trim()
+      ? pregunta.imagenUrl.trim()
+      : undefined;
+
   if (tipoPregunta === "desarrollo") {
     return {
       id: pregunta.id,
       texto: pregunta.texto,
       tipoPregunta,
       tipoInput: "textarea" as const,
+      ...(imagenUrl ? { imagenUrl } : {}),
       respuestas: [] as Array<{ id: string; texto: string }>,
     };
   }
@@ -109,6 +119,7 @@ export const mapPreguntaForStudent = (pregunta: ExamenPregunta) => {
     texto: pregunta.texto,
     tipoPregunta,
     tipoInput: getTipoInputForQuestion(pregunta.respuestas, tipoPregunta),
+    ...(imagenUrl ? { imagenUrl } : {}),
     respuestas: (pregunta.respuestas || []).map(({ id, texto }) => ({ id, texto })),
   };
 };
@@ -206,6 +217,8 @@ export type PreguntaExamenSnapshot = {
   texto: string;
   puntos: number;
   tipoPregunta: TipoPregunta;
+  imagenUrl?: string;
+  imagenPath?: string;
   respuestas: Array<{
     id: string;
     texto: string;
@@ -218,19 +231,31 @@ export const buildPreguntasSnapshot = (
   preguntas: Array<ExamenPregunta & { puntos?: number }>
 ): PreguntaExamenSnapshot[] => {
   const total = preguntas.length;
-  return preguntas.map((pregunta, index) => ({
-    id: pregunta.id,
-    texto: pregunta.texto,
-    puntos: getPreguntaPuntos(pregunta, index, total),
-    tipoPregunta: resolveTipoPregunta(pregunta),
-    respuestas: esPreguntaDesarrollo(pregunta)
-      ? []
-      : (pregunta.respuestas || []).map((r) => ({
-          id: r.id,
-          texto: r.texto,
-          esCorrecta: r.esCorrecta === true,
-        })),
-  }));
+  return preguntas.map((pregunta, index) => {
+    const imagenUrl =
+      typeof pregunta.imagenUrl === "string" && pregunta.imagenUrl.trim()
+        ? pregunta.imagenUrl.trim()
+        : undefined;
+    const imagenPath =
+      typeof pregunta.imagenPath === "string" && pregunta.imagenPath.trim()
+        ? pregunta.imagenPath.trim()
+        : undefined;
+    return {
+      id: pregunta.id,
+      texto: pregunta.texto,
+      puntos: getPreguntaPuntos(pregunta, index, total),
+      tipoPregunta: resolveTipoPregunta(pregunta),
+      ...(imagenUrl ? { imagenUrl } : {}),
+      ...(imagenPath ? { imagenPath } : {}),
+      respuestas: esPreguntaDesarrollo(pregunta)
+        ? []
+        : (pregunta.respuestas || []).map((r) => ({
+            id: r.id,
+            texto: r.texto,
+            esCorrecta: r.esCorrecta === true,
+          })),
+    };
+  });
 };
 
 export type PreguntaExamenRealizadoGuardada = PreguntaExamenSnapshot & {
@@ -256,11 +281,21 @@ export const buildPreguntasExamenRealizado = (
     const acertada = desarrollo
       ? false
       : isQuestionCorrect(pregunta, seleccionadas);
+    const imagenUrl =
+      typeof pregunta.imagenUrl === "string" && pregunta.imagenUrl.trim()
+        ? pregunta.imagenUrl.trim()
+        : undefined;
+    const imagenPath =
+      typeof pregunta.imagenPath === "string" && pregunta.imagenPath.trim()
+        ? pregunta.imagenPath.trim()
+        : undefined;
     return {
       id: pregunta.id,
       texto: pregunta.texto,
       puntos,
       tipoPregunta: resolveTipoPregunta(pregunta),
+      ...(imagenUrl ? { imagenUrl } : {}),
+      ...(imagenPath ? { imagenPath } : {}),
       puntosObtenidos: desarrollo ? 0 : acertada ? puntos : 0,
       acertada,
       esCorrecta: acertada,
