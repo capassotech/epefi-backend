@@ -185,6 +185,16 @@ const PreguntaExamenSchema = z.object({
   tipoPregunta: z
     .enum(["opcion_multiple", "desarrollo"])
     .default("opcion_multiple"),
+  imagenUrl: z
+    .string()
+    .trim()
+    .optional()
+    .transform((val) => (val && val.length > 0 ? val : undefined)),
+  imagenPath: z
+    .string()
+    .trim()
+    .optional()
+    .transform((val) => (val && val.length > 0 ? val : undefined)),
   respuestas: z
     .array(
       z.object({
