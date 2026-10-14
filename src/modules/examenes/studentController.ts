@@ -91,7 +91,9 @@ export const getExamenEstadoFormacion = async (
     }
 
     const formacionCompleta = progresoFormacion.completo;
-    const examenDisponible = formacionCompleta && examenId !== null;
+    const requiereCompletarCurso = examenData?.requiereCompletarCurso !== false;
+    const examenDisponible =
+      examenId !== null && (formacionCompleta || !requiereCompletarCurso);
     const yaAprobo = ultimoIntento?.aprobado === true;
     const tieneIntentoPrevio = ultimoIntento !== null;
     const pendienteCorreccion =
@@ -103,7 +105,7 @@ export const getExamenEstadoFormacion = async (
       !yaAprobo &&
       !pendienteCorreccion &&
       !intentosAgotados &&
-      (formacionCompleta || tieneIntentoPrevio);
+      (formacionCompleta || tieneIntentoPrevio || !requiereCompletarCurso);
 
     return res.json({
       idFormacion,
@@ -116,6 +118,7 @@ export const getExamenEstadoFormacion = async (
       examenDisponible,
       idExamen: examenId,
       tituloExamen: examenData?.titulo ?? null,
+      requiereCompletarCurso,
       duracionMinutos:
         typeof examenData?.duracionMinutos === "number" &&
         examenData.duracionMinutos > 0
@@ -217,23 +220,27 @@ export const getExamenParaAlumno = async (
       });
     }
 
-    const progresoFormacion = await getFormationProgress(
-      idFormacion,
-      user.data.progreso || {},
-      user.data.modulos_habilitados || {}
-    );
+    const requiereCompletarCurso = examenData.requiereCompletarCurso !== false;
 
-    if (!progresoFormacion.completo && !esReintentoNoAprobado) {
-      return res.status(403).json({
-        codigo: "MODULOS_INCOMPLETOS",
-        error:
-          "Debés completar todos los módulos de la formación antes de realizar la evaluación",
-        progresoFormacion: {
-          totalModulos: progresoFormacion.totalModulos,
-          modulosCompletados: progresoFormacion.modulosCompletados,
-          modulosPendientes: progresoFormacion.modulosPendientes,
-        },
-      });
+    if (requiereCompletarCurso) {
+      const progresoFormacion = await getFormationProgress(
+        idFormacion,
+        user.data.progreso || {},
+        user.data.modulos_habilitados || {}
+      );
+
+      if (!progresoFormacion.completo && !esReintentoNoAprobado) {
+        return res.status(403).json({
+          codigo: "MODULOS_INCOMPLETOS",
+          error:
+            "Debés completar todos los módulos de la formación antes de realizar la evaluación",
+          progresoFormacion: {
+            totalModulos: progresoFormacion.totalModulos,
+            modulosCompletados: progresoFormacion.modulosCompletados,
+            modulosPendientes: progresoFormacion.modulosPendientes,
+          },
+        });
+      }
     }
 
     const aleatorioExplicito =
