@@ -325,6 +325,7 @@ const ExamenBaseSchema = z
       .min(1, "La duración mínima es 1 minuto")
       .max(480, "La duración máxima es 480 minutos")
       .default(90),
+    requiereCompletarCurso: z.boolean().default(true),
     preguntas: z
       .array(PreguntaExamenSchema)
       .min(1, "El examen debe tener al menos una pregunta"),
