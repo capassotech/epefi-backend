@@ -13,11 +13,11 @@ import {
   calculateExamenGrade,
   esPreguntaDesarrollo,
   ExamenPregunta,
-  MAX_INTENTOS_EXAMEN,
   mensajeIntentosAgotados,
   normalizePreguntasPuntos,
   resolveEstadoExamenRealizado,
 } from "../../utils/examenScoring";
+import { resolveIntentosMaximos } from "../../utils/examenIntentosService";
 import { buildExamenRealizadoDetalle } from "../../utils/examenesRealizadosService";
 
 const examenesCollection = firestore.collection("examenes");
@@ -79,6 +79,11 @@ export const submitExamenRealizado = async (
 
     const ultimoIntento = intentosOrdenados[0];
     const intentosUsados = intentosPrevios.size;
+    const intentosMaximos = await resolveIntentosMaximos(
+      uid,
+      payload.idExamen,
+      payload.idFormacion
+    );
     const esReintentoNoAprobado =
       ultimoIntento !== undefined && ultimoIntento.aprobado !== true;
 
@@ -97,12 +102,12 @@ export const submitExamenRealizado = async (
       });
     }
 
-    if (intentosUsados >= MAX_INTENTOS_EXAMEN) {
+    if (intentosUsados >= intentosMaximos) {
       return res.status(403).json({
         codigo: "INTENTOS_AGOTADOS",
-        error: mensajeIntentosAgotados(),
+        error: mensajeIntentosAgotados(intentosMaximos),
         intentosUsados,
-        intentosMaximos: MAX_INTENTOS_EXAMEN,
+        intentosMaximos,
       });
     }
 
@@ -234,7 +239,7 @@ export const submitExamenRealizado = async (
     const estado = resolveEstadoExamenRealizado(preguntas);
 
     const intentoNumero = (ultimoIntento?.intentoNumero || 0) + 1;
-    const ahoraAgotoIntentos = intentosUsados + 1 >= MAX_INTENTOS_EXAMEN;
+    const ahoraAgotoIntentos = intentosUsados + 1 >= intentosMaximos;
     const now = new Date();
 
     const registro = {
@@ -276,7 +281,7 @@ export const submitExamenRealizado = async (
             : calificacion.aprobado
               ? "Felicitaciones, aprobaste la evaluación"
               : ahoraAgotoIntentos
-                ? mensajeIntentosAgotados()
+                ? mensajeIntentosAgotados(intentosMaximos)
                 : "No aprobaste la evaluación. Podés reintentar cuando quieras";
 
     return res.status(201).json({
@@ -292,7 +297,7 @@ export const submitExamenRealizado = async (
         estado,
         intentoNumero,
         intentosUsados: intentoNumero,
-        intentosMaximos: MAX_INTENTOS_EXAMEN,
+        intentosMaximos,
         puedeReintentar,
       },
     });
@@ -365,15 +370,17 @@ export const getMisIntentosExamen = async (
       });
 
     const ultimo = intentos[0] ?? null;
+    const intentosMaximos = await resolveIntentosMaximos(uid, idExamen);
 
     return res.json({
       totalIntentos: intentos.length,
       ultimoIntento: ultimo,
       intentos,
+      intentosMaximos,
       puedeReintentar: ultimo
         ? ultimo.aprobado !== true &&
           ultimo.estado !== "pendiente_correccion" &&
-          intentos.length < MAX_INTENTOS_EXAMEN
+          intentos.length < intentosMaximos
         : true,
     });
   } catch (error) {
