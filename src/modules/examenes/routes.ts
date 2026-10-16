@@ -11,6 +11,11 @@ import {
   getExamenParaAlumno,
 } from "./studentController";
 import {
+  getAlumnosIntentosExamenAdmin,
+  resetIntentosExamenAlumnoAdmin,
+  upsertIntentosExamenAlumnoAdmin,
+} from "./intentosAdminController";
+import {
   authMiddleware,
   AuthenticatedRequest,
 } from "../../middleware/authMiddleware";
@@ -25,6 +30,18 @@ import { z } from "zod";
 const router = Router();
 const IdParamSchema = z.object({
   id: z.string().min(1, "El ID del examen es obligatorio"),
+});
+
+const IntentosAlumnoParamSchema = z.object({
+  id: z.string().min(1, "El ID del examen es obligatorio"),
+  idAlumno: z.string().min(1, "El ID del alumno es obligatorio"),
+});
+
+const UpsertIntentosBodySchema = z.object({
+  intentosMaximos: z
+    .number({ message: "Los intentos máximos deben ser un número" })
+    .int("Los intentos máximos deben ser un entero")
+    .min(1, "El mínimo es 1 intento"),
 });
 
 const getAllExamenesHandler = (req: Request, res: Response) =>
@@ -48,6 +65,15 @@ const getExamenEstadoFormacionHandler = (req: Request, res: Response) =>
 const getExamenParaAlumnoHandler = (req: Request, res: Response) =>
   getExamenParaAlumno(req as AuthenticatedRequest, res);
 
+const getAlumnosIntentosHandler = (req: Request, res: Response) =>
+  getAlumnosIntentosExamenAdmin(req as AuthenticatedRequest, res);
+
+const upsertIntentosHandler = (req: Request, res: Response) =>
+  upsertIntentosExamenAlumnoAdmin(req as AuthenticatedRequest, res);
+
+const resetIntentosHandler = (req: Request, res: Response) =>
+  resetIntentosExamenAlumnoAdmin(req as AuthenticatedRequest, res);
+
 // Rutas alumno (antes de /:id admin)
 router.get(
   "/alumno/formacion/:idFormacion/estado",
@@ -59,6 +85,30 @@ router.get(
   "/alumno/:idExamen",
   authMiddleware,
   getExamenParaAlumnoHandler
+);
+
+// Admin: intentos personalizados por alumno
+router.get(
+  "/:id/intentos-alumnos",
+  authMiddleware,
+  validateParams(IdParamSchema),
+  getAlumnosIntentosHandler
+);
+
+router.put(
+  "/:id/intentos-alumnos/:idAlumno",
+  authMiddleware,
+  validateParams(IntentosAlumnoParamSchema),
+  basicSanitization,
+  validateBody(UpsertIntentosBodySchema),
+  upsertIntentosHandler
+);
+
+router.delete(
+  "/:id/intentos-alumnos/:idAlumno",
+  authMiddleware,
+  validateParams(IntentosAlumnoParamSchema),
+  resetIntentosHandler
 );
 
 router.get("/", authMiddleware, getAllExamenesHandler);
