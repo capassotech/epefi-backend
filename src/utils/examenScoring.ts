@@ -69,7 +69,8 @@ export type ExamenCalificacionResult = {
 };
 
 export const computeGradeFromPuntosObtenidos = (
-  puntosObtenidos: number
+  puntosObtenidos: number,
+  notaMinimaAprobacion: number = PORCENTAJE_MINIMO_APROBACION
 ): Pick<
   ExamenCalificacionResult,
   "puntosObtenidos" | "porcentajeAciertos" | "nota" | "aprobado"
@@ -78,7 +79,7 @@ export const computeGradeFromPuntosObtenidos = (
     (puntosObtenidos / PUNTOS_TOTAL_EXAMEN) * 100
   );
   const nota = roundToOneDecimal((porcentajeAciertos / 100) * 10);
-  const aprobado = porcentajeAciertos >= PORCENTAJE_MINIMO_APROBACION;
+  const aprobado = porcentajeAciertos >= notaMinimaAprobacion;
 
   return { puntosObtenidos, porcentajeAciertos, nota, aprobado };
 };
@@ -316,7 +317,8 @@ export const buildPreguntasExamenRealizado = (
 
 export const calculateExamenGrade = (
   preguntas: ExamenPregunta[],
-  respuestasAlumno: RespuestaAlumno[]
+  respuestasAlumno: RespuestaAlumno[],
+  notaMinimaAprobacion: number = PORCENTAJE_MINIMO_APROBACION
 ): ExamenCalificacionResult => {
   const totalPreguntas = preguntas.length;
 
@@ -347,7 +349,7 @@ export const calculateExamenGrade = (
     }
   });
 
-  const grade = computeGradeFromPuntosObtenidos(puntosObtenidos);
+  const grade = computeGradeFromPuntosObtenidos(puntosObtenidos, notaMinimaAprobacion);
 
   // Si hay desarrollo pendiente, no se aprueba hasta la corrección manual
   if (tienePreguntasDesarrollo(preguntas)) {

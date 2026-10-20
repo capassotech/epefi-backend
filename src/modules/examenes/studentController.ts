@@ -151,6 +151,10 @@ export const getExamenEstadoFormacion = async (
       examenDisponible,
       idExamen: examenId,
       tituloExamen: examenData?.titulo ?? null,
+      notaMinima:
+        typeof examenData?.notaMinima === "number" && examenData.notaMinima > 0
+          ? examenData.notaMinima
+          : 70,
       requiereCompletarCurso,
       duracionMinutos:
         typeof examenData?.duracionMinutos === "number" &&
@@ -304,6 +308,10 @@ export const getExamenParaAlumno = async (
         examenData.duracionMinutos > 0
           ? examenData.duracionMinutos
           : 90,
+      notaMinima:
+        typeof examenData.notaMinima === "number" && examenData.notaMinima > 0
+          ? examenData.notaMinima
+          : 70,
       esReintento,
       preguntasAleatorias: aleatorio,
       preguntas: preguntasOrdenadas,

@@ -111,7 +111,8 @@ export const submitExamenRealizado = async (
       });
     }
 
-    if (!progresoFormacion.completo && !esReintentoNoAprobado) {
+    const requiereCompletarCurso = examenData.requiereCompletarCurso !== false;
+    if (requiereCompletarCurso && !progresoFormacion.completo && !esReintentoNoAprobado) {
       return res.status(403).json({
         codigo: "MODULOS_INCOMPLETOS",
         error:
@@ -222,7 +223,11 @@ export const submitExamenRealizado = async (
       }
     }
 
-    const calificacion = calculateExamenGrade(preguntas, respuestasNormalizadas);
+    const notaMinimaExamen =
+      typeof examenData.notaMinima === "number" && examenData.notaMinima > 0
+        ? examenData.notaMinima
+        : 70;
+    const calificacion = calculateExamenGrade(preguntas, respuestasNormalizadas, notaMinimaExamen);
 
     if (calificacion.totalPreguntas === 0) {
       return res.status(400).json({
@@ -236,7 +241,8 @@ export const submitExamenRealizado = async (
       preguntas,
       respuestasNormalizadas
     );
-    const estado = resolveEstadoExamenRealizado(preguntas);
+    // Abandono y tiempo agotado no generan corrección manual aunque haya preguntas de desarrollo.
+    const estado = esCierreForzado ? "completado" : resolveEstadoExamenRealizado(preguntas);
 
     const intentoNumero = (ultimoIntento?.intentoNumero || 0) + 1;
     const ahoraAgotoIntentos = intentosUsados + 1 >= intentosMaximos;
@@ -255,6 +261,7 @@ export const submitExamenRealizado = async (
       porcentajeAciertos: calificacion.porcentajeAciertos,
       nota: calificacion.nota,
       aprobado: calificacion.aprobado,
+      notaMinima: notaMinimaExamen,
       estado,
       intentoNumero,
       fechaRealizacion: now,

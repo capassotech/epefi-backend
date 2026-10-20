@@ -326,6 +326,13 @@ const ExamenBaseSchema = z
       .max(480, "La duración máxima es 480 minutos")
       .default(90),
     requiereCompletarCurso: z.boolean().default(true),
+    notaMinima: z
+      .number({ message: "La nota mínima debe ser un número" })
+      .int("La nota mínima debe ser un número entero")
+      .min(1, "La nota mínima debe ser al menos 1")
+      .max(100, "La nota mínima no puede superar 100")
+      .default(70)
+      .optional(),
     preguntas: z
       .array(PreguntaExamenSchema)
       .min(1, "El examen debe tener al menos una pregunta"),

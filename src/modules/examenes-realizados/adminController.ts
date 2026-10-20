@@ -192,7 +192,11 @@ export const corregirExamenRealizadoAdmin = async (
       }
     }
     puntosObtenidosTotal = roundPuntos(puntosObtenidosTotal);
-    const grade = computeGradeFromPuntosObtenidos(puntosObtenidosTotal);
+    const notaMinimaExamen =
+      typeof record.notaMinima === "number" && record.notaMinima > 0
+        ? record.notaMinima
+        : 70;
+    const grade = computeGradeFromPuntosObtenidos(puntosObtenidosTotal, notaMinimaExamen);
 
     await docRef.update({
       preguntas: preguntasActualizadas,
