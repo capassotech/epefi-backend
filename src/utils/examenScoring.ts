@@ -213,6 +213,29 @@ export const isQuestionCorrect = (
   return correctIds.every((id, index) => id === selectedIds[index]);
 };
 
+/**
+ * Calcula los puntos fraccionados para una pregunta de opción múltiple.
+ * Por cada respuesta correcta seleccionada se acredita una fracción proporcional
+ * del total de puntos; las respuestas incorrectas seleccionadas no penalizan.
+ * Ej.: 3 correctas, alumno acierta 2 → 2/3 * puntosPregunta
+ */
+export const getQuestionFractionalPoints = (
+  pregunta: ExamenPregunta,
+  respuestasSeleccionadas: string[],
+  puntosPregunta: number
+): number => {
+  const correctIds = new Set(
+    pregunta.respuestas.filter((r) => r.esCorrecta === true).map((r) => r.id)
+  );
+  const totalCorrectas = correctIds.size;
+  if (totalCorrectas === 0) return 0;
+
+  const acertadas = respuestasSeleccionadas.filter((id) => correctIds.has(id)).length;
+  if (acertadas === 0) return 0;
+
+  return roundPuntos((acertadas / totalCorrectas) * puntosPregunta);
+};
+
 export type PreguntaExamenSnapshot = {
   id: string;
   texto: string;
@@ -297,7 +320,7 @@ export const buildPreguntasExamenRealizado = (
       tipoPregunta: resolveTipoPregunta(pregunta),
       ...(imagenUrl ? { imagenUrl } : {}),
       ...(imagenPath ? { imagenPath } : {}),
-      puntosObtenidos: desarrollo ? 0 : acertada ? puntos : 0,
+      puntosObtenidos: desarrollo ? 0 : getQuestionFractionalPoints(pregunta, seleccionadas, puntos),
       acertada,
       esCorrecta: acertada,
       respuestas: desarrollo
@@ -343,10 +366,11 @@ export const calculateExamenGrade = (
     const puntosPregunta = getPreguntaPuntos(pregunta, index, totalPreguntas);
     const respuesta = respuestasAlumno.find((r) => r.idPregunta === pregunta.id);
     const seleccionadas = respuesta?.respuestasSeleccionadas ?? [];
+    const puntosGanados = getQuestionFractionalPoints(pregunta, seleccionadas, puntosPregunta);
     if (isQuestionCorrect(pregunta, seleccionadas)) {
       respuestasCorrectas++;
-      puntosObtenidos += puntosPregunta;
     }
+    puntosObtenidos += puntosGanados;
   });
 
   const grade = computeGradeFromPuntosObtenidos(puntosObtenidos, notaMinimaAprobacion);

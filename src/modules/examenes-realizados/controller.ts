@@ -333,11 +333,11 @@ export const getMiExamenRealizadoDetalle = async (
       });
     }
 
-    if (detalle.aprobado !== true) {
+    if (detalle.estado === "pendiente_correccion") {
       return res.status(403).json({
-        codigo: "DETALLE_SOLO_APROBADO",
+        codigo: "DETALLE_PENDIENTE_CORRECCION",
         error:
-          "El detalle del examen solo está disponible cuando aprobás la evaluación",
+          "El detalle del examen estará disponible una vez que el docente lo corrija",
       });
     }
 
