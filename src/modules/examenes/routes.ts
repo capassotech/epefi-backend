@@ -5,6 +5,7 @@ import {
   getExamenById,
   updateExamen,
   deleteExamen,
+  setExamenHabilitado,
 } from "./controller";
 import {
   getExamenEstadoFormacion,
@@ -44,6 +45,10 @@ const UpsertIntentosBodySchema = z.object({
     .min(1, "El mínimo es 1 intento"),
 });
 
+const SetHabilitadoBodySchema = z.object({
+  habilitado: z.boolean({ message: 'El campo "habilitado" debe ser un booleano' }),
+});
+
 const getAllExamenesHandler = (req: Request, res: Response) =>
   getAllExamenes(req as AuthenticatedRequest, res);
 
@@ -73,6 +78,9 @@ const upsertIntentosHandler = (req: Request, res: Response) =>
 
 const resetIntentosHandler = (req: Request, res: Response) =>
   resetIntentosExamenAlumnoAdmin(req as AuthenticatedRequest, res);
+
+const setHabilitadoHandler = (req: Request, res: Response) =>
+  setExamenHabilitado(req as AuthenticatedRequest, res);
 
 // Rutas alumno (antes de /:id admin)
 router.get(
@@ -109,6 +117,15 @@ router.delete(
   authMiddleware,
   validateParams(IntentosAlumnoParamSchema),
   resetIntentosHandler
+);
+
+router.patch(
+  "/:id/habilitado",
+  authMiddleware,
+  validateParams(IdParamSchema),
+  basicSanitization,
+  validateBody(SetHabilitadoBodySchema),
+  setHabilitadoHandler
 );
 
 router.get("/", authMiddleware, getAllExamenesHandler);

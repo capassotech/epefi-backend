@@ -8,8 +8,10 @@ import {
 } from "../../utils/formacionProgress";
 import {
   ExamenPregunta,
+  isExamenHabilitado,
   MAX_INTENTOS_EXAMEN,
   mapPreguntaForStudent,
+  MENSAJE_EXAMEN_DESHABILITADO,
   mensajeIntentosAgotados,
   shuffleArray,
 } from "../../utils/examenScoring";
@@ -125,6 +127,7 @@ export const getExamenEstadoFormacion = async (
 
     const formacionCompleta = progresoFormacion.completo;
     const requiereCompletarCurso = examenData?.requiereCompletarCurso !== false;
+    const examenHabilitado = isExamenHabilitado(examenData);
     const examenDisponible =
       examenId !== null && (formacionCompleta || !requiereCompletarCurso);
     const yaAprobo = ultimoIntento?.aprobado === true;
@@ -135,6 +138,7 @@ export const getExamenEstadoFormacion = async (
       intentosUsados >= intentosMaximos && !yaAprobo && !pendienteCorreccion;
     const puedeRealizar =
       examenId !== null &&
+      examenHabilitado &&
       !yaAprobo &&
       !pendienteCorreccion &&
       !intentosAgotados &&
@@ -149,6 +153,7 @@ export const getExamenEstadoFormacion = async (
         modulosPendientes: progresoFormacion.modulosPendientes,
       },
       examenDisponible,
+      examenHabilitado,
       idExamen: examenId,
       tituloExamen: examenData?.titulo ?? null,
       notaMinima:
@@ -182,11 +187,14 @@ export const getExamenEstadoFormacion = async (
       intentosUsados,
       intentosMaximos,
       intentosAgotados,
-      mensajeBloqueo: intentosAgotados
-        ? mensajeIntentosAgotados(intentosMaximos)
-        : null,
+      mensajeBloqueo: !examenHabilitado
+        ? MENSAJE_EXAMEN_DESHABILITADO
+        : intentosAgotados
+          ? mensajeIntentosAgotados(intentosMaximos)
+          : null,
       puedeReintentar:
         examenId !== null &&
+        examenHabilitado &&
         !yaAprobo &&
         !pendienteCorreccion &&
         !intentosAgotados &&
@@ -222,6 +230,13 @@ export const getExamenParaAlumno = async (
       return res.status(403).json({
         codigo: "FORMACION_NO_ASIGNADA",
         error: "No tenés asignada esta formación",
+      });
+    }
+
+    if (!isExamenHabilitado(examenData)) {
+      return res.status(403).json({
+        codigo: "EXAMEN_DESHABILITADO",
+        error: MENSAJE_EXAMEN_DESHABILITADO,
       });
     }
 

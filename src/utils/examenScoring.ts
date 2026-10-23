@@ -10,6 +10,14 @@ export const PUNTOS_TOTAL_EXAMEN = 100;
 /** Intentos máximos por alumno y examen (incluye envío, tiempo agotado y abandono). */
 export const MAX_INTENTOS_EXAMEN = 3;
 
+/** Exámenes sin campo `habilitado` se consideran habilitados (compatibilidad). */
+export const isExamenHabilitado = (
+  data?: { habilitado?: boolean } | null
+): boolean => data?.habilitado !== false;
+
+export const MENSAJE_EXAMEN_DESHABILITADO =
+  "Esta evaluación aún no está disponible. Las evaluaciones se habilitarán según el plan de estudios. Si tenés alguna consulta, comunicate con tu profesor.";
+
 export const mensajeIntentosAgotados = (max = MAX_INTENTOS_EXAMEN): string =>
   `Alcanzaste el máximo de ${max} intentos. La evaluación quedó bloqueada y ya no podés volver a realizarla.`;
 

@@ -13,6 +13,8 @@ import {
   calculateExamenGrade,
   esPreguntaDesarrollo,
   ExamenPregunta,
+  isExamenHabilitado,
+  MENSAJE_EXAMEN_DESHABILITADO,
   mensajeIntentosAgotados,
   normalizePreguntasPuntos,
   resolveEstadoExamenRealizado,
@@ -56,6 +58,13 @@ export const submitExamenRealizado = async (
     if (examenData.idFormacion !== payload.idFormacion) {
       return res.status(400).json({
         error: "El examen no corresponde a la formación indicada",
+      });
+    }
+
+    if (!isExamenHabilitado(examenData)) {
+      return res.status(403).json({
+        codigo: "EXAMEN_DESHABILITADO",
+        error: MENSAJE_EXAMEN_DESHABILITADO,
       });
     }
 
