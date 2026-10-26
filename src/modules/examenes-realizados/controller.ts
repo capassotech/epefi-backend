@@ -251,7 +251,12 @@ export const submitExamenRealizado = async (
       respuestasNormalizadas
     );
     // Abandono y tiempo agotado no generan corrección manual aunque haya preguntas de desarrollo.
-    const estado = esCierreForzado ? "completado" : resolveEstadoExamenRealizado(preguntas);
+    const publicacionManual = examenData.publicacionManualDeNota === true;
+    const estado = esCierreForzado
+      ? "completado"
+      : publicacionManual
+        ? "pendiente_correccion"
+        : resolveEstadoExamenRealizado(preguntas);
 
     const intentoNumero = (ultimoIntento?.intentoNumero || 0) + 1;
     const ahoraAgotoIntentos = intentosUsados + 1 >= intentosMaximos;
@@ -293,7 +298,9 @@ export const submitExamenRealizado = async (
             ? "Cerraste la evaluación. El intento quedó registrado y alcanzaste el máximo de intentos."
             : "Cerraste la evaluación. El intento quedó registrado."
           : estado === "pendiente_correccion"
-            ? "Evaluación enviada. Quedó pendiente de corrección."
+            ? publicacionManual
+              ? "Tu evaluación fue enviada. La nota será publicada por el administrador en las próximas horas."
+              : "Evaluación enviada. Quedó pendiente de corrección."
             : calificacion.aprobado
               ? "Felicitaciones, aprobaste la evaluación"
               : ahoraAgotoIntentos
@@ -315,6 +322,7 @@ export const submitExamenRealizado = async (
         intentosUsados: intentoNumero,
         intentosMaximos,
         puedeReintentar,
+        publicacionManualDeNota: publicacionManual,
       },
     });
   } catch (error) {

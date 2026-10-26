@@ -126,9 +126,24 @@ export const corregirExamenRealizadoAdmin = async (
       .map((p: any) => String(p.id ?? p.idPregunta ?? "").trim())
       .filter(Boolean);
 
+    // Si no hay preguntas de desarrollo, solo se permite publicar (publicacionManualDeNota)
     if (desarrolloIds.length === 0) {
-      return res.status(400).json({
-        error: "Este examen no tiene preguntas de desarrollo para corregir",
+      // Verificar si el payload tiene correcciones (no debería para publicación manual)
+      if (payload.correcciones && payload.correcciones.length > 0) {
+        return res.status(400).json({
+          error: "Este examen no tiene preguntas de desarrollo para corregir",
+        });
+      }
+      // Publicación manual: solo actualizar estado a completado sin recalcular
+      await docRef.update({
+        estado: "completado",
+        fechaCorreccion: new Date(),
+        corregidoPor: req.user.uid,
+      });
+      const detalle = await buildExamenRealizadoDetalle(id);
+      return res.json({
+        message: "Nota publicada correctamente",
+        resultado: detalle,
       });
     }
 
