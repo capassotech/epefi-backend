@@ -13,11 +13,13 @@ import {
   calculateExamenGrade,
   esPreguntaDesarrollo,
   ExamenPregunta,
-  MAX_INTENTOS_EXAMEN,
+  isExamenHabilitado,
+  MENSAJE_EXAMEN_DESHABILITADO,
   mensajeIntentosAgotados,
   normalizePreguntasPuntos,
   resolveEstadoExamenRealizado,
 } from "../../utils/examenScoring";
+import { resolveIntentosMaximos } from "../../utils/examenIntentosService";
 import { buildExamenRealizadoDetalle } from "../../utils/examenesRealizadosService";
 
 const examenesCollection = firestore.collection("examenes");
@@ -59,6 +61,13 @@ export const submitExamenRealizado = async (
       });
     }
 
+    if (!isExamenHabilitado(examenData)) {
+      return res.status(403).json({
+        codigo: "EXAMEN_DESHABILITADO",
+        error: MENSAJE_EXAMEN_DESHABILITADO,
+      });
+    }
+
     const progresoFormacion = await getFormationProgress(
       payload.idFormacion,
       userData.progreso || {},
@@ -79,6 +88,11 @@ export const submitExamenRealizado = async (
 
     const ultimoIntento = intentosOrdenados[0];
     const intentosUsados = intentosPrevios.size;
+    const intentosMaximos = await resolveIntentosMaximos(
+      uid,
+      payload.idExamen,
+      payload.idFormacion
+    );
     const esReintentoNoAprobado =
       ultimoIntento !== undefined && ultimoIntento.aprobado !== true;
 
@@ -97,16 +111,17 @@ export const submitExamenRealizado = async (
       });
     }
 
-    if (intentosUsados >= MAX_INTENTOS_EXAMEN) {
+    if (intentosUsados >= intentosMaximos) {
       return res.status(403).json({
         codigo: "INTENTOS_AGOTADOS",
-        error: mensajeIntentosAgotados(),
+        error: mensajeIntentosAgotados(intentosMaximos),
         intentosUsados,
-        intentosMaximos: MAX_INTENTOS_EXAMEN,
+        intentosMaximos,
       });
     }
 
-    if (!progresoFormacion.completo && !esReintentoNoAprobado) {
+    const requiereCompletarCurso = examenData.requiereCompletarCurso !== false;
+    if (requiereCompletarCurso && !progresoFormacion.completo && !esReintentoNoAprobado) {
       return res.status(403).json({
         codigo: "MODULOS_INCOMPLETOS",
         error:
@@ -217,7 +232,11 @@ export const submitExamenRealizado = async (
       }
     }
 
-    const calificacion = calculateExamenGrade(preguntas, respuestasNormalizadas);
+    const notaMinimaExamen =
+      typeof examenData.notaMinima === "number" && examenData.notaMinima > 0
+        ? examenData.notaMinima
+        : 70;
+    const calificacion = calculateExamenGrade(preguntas, respuestasNormalizadas, notaMinimaExamen);
 
     if (calificacion.totalPreguntas === 0) {
       return res.status(400).json({
@@ -231,10 +250,16 @@ export const submitExamenRealizado = async (
       preguntas,
       respuestasNormalizadas
     );
-    const estado = resolveEstadoExamenRealizado(preguntas);
+    // Abandono y tiempo agotado no generan corrección manual aunque haya preguntas de desarrollo.
+    const publicacionManual = examenData.publicacionManualDeNota === true;
+    const estado = esCierreForzado
+      ? "completado"
+      : publicacionManual
+        ? "pendiente_correccion"
+        : resolveEstadoExamenRealizado(preguntas);
 
     const intentoNumero = (ultimoIntento?.intentoNumero || 0) + 1;
-    const ahoraAgotoIntentos = intentosUsados + 1 >= MAX_INTENTOS_EXAMEN;
+    const ahoraAgotoIntentos = intentosUsados + 1 >= intentosMaximos;
     const now = new Date();
 
     const registro = {
@@ -250,6 +275,7 @@ export const submitExamenRealizado = async (
       porcentajeAciertos: calificacion.porcentajeAciertos,
       nota: calificacion.nota,
       aprobado: calificacion.aprobado,
+      notaMinima: notaMinimaExamen,
       estado,
       intentoNumero,
       fechaRealizacion: now,
@@ -272,11 +298,13 @@ export const submitExamenRealizado = async (
             ? "Cerraste la evaluación. El intento quedó registrado y alcanzaste el máximo de intentos."
             : "Cerraste la evaluación. El intento quedó registrado."
           : estado === "pendiente_correccion"
-            ? "Evaluación enviada. Quedó pendiente de corrección."
+            ? publicacionManual
+              ? "Tu evaluación fue enviada. La nota será publicada por el administrador en las próximas horas."
+              : "Evaluación enviada. Quedó pendiente de corrección."
             : calificacion.aprobado
               ? "Felicitaciones, aprobaste la evaluación"
               : ahoraAgotoIntentos
-                ? mensajeIntentosAgotados()
+                ? mensajeIntentosAgotados(intentosMaximos)
                 : "No aprobaste la evaluación. Podés reintentar cuando quieras";
 
     return res.status(201).json({
@@ -292,8 +320,9 @@ export const submitExamenRealizado = async (
         estado,
         intentoNumero,
         intentosUsados: intentoNumero,
-        intentosMaximos: MAX_INTENTOS_EXAMEN,
+        intentosMaximos,
         puedeReintentar,
+        publicacionManualDeNota: publicacionManual,
       },
     });
   } catch (error) {
@@ -321,11 +350,11 @@ export const getMiExamenRealizadoDetalle = async (
       });
     }
 
-    if (detalle.aprobado !== true) {
+    if (detalle.estado === "pendiente_correccion") {
       return res.status(403).json({
-        codigo: "DETALLE_SOLO_APROBADO",
+        codigo: "DETALLE_PENDIENTE_CORRECCION",
         error:
-          "El detalle del examen solo está disponible cuando aprobás la evaluación",
+          "El detalle del examen estará disponible una vez que el docente lo corrija",
       });
     }
 
@@ -365,15 +394,17 @@ export const getMisIntentosExamen = async (
       });
 
     const ultimo = intentos[0] ?? null;
+    const intentosMaximos = await resolveIntentosMaximos(uid, idExamen);
 
     return res.json({
       totalIntentos: intentos.length,
       ultimoIntento: ultimo,
       intentos,
+      intentosMaximos,
       puedeReintentar: ultimo
         ? ultimo.aprobado !== true &&
           ultimo.estado !== "pendiente_correccion" &&
-          intentos.length < MAX_INTENTOS_EXAMEN
+          intentos.length < intentosMaximos
         : true,
     });
   } catch (error) {

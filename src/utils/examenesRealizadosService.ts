@@ -231,6 +231,12 @@ const asPreguntaSnapshot = (raw: unknown): ExamenPregunta | null => {
     texto: String(p.texto ?? p.pregunta ?? ""),
     puntos: typeof p.puntos === "number" ? p.puntos : undefined,
     tipoPregunta,
+    ...(typeof p.imagenUrl === "string" && p.imagenUrl.trim()
+      ? { imagenUrl: p.imagenUrl.trim() }
+      : {}),
+    ...(typeof p.imagenPath === "string" && p.imagenPath.trim()
+      ? { imagenPath: p.imagenPath.trim() }
+      : {}),
     respuestas:
       tipoPregunta === "desarrollo"
         ? []
@@ -383,6 +389,12 @@ const buildPreguntaDetalle = (
       esCorrecta: preguntaAcertada === true,
       acertada: preguntaAcertada === true,
       preguntaNoDisponible: false,
+      ...(typeof pregunta.imagenUrl === "string" && pregunta.imagenUrl.trim()
+        ? { imagenUrl: pregunta.imagenUrl.trim() }
+        : typeof savedPregunta?.imagenUrl === "string" &&
+            savedPregunta.imagenUrl.trim()
+          ? { imagenUrl: savedPregunta.imagenUrl.trim() }
+          : {}),
       respuestas: [] as Array<{ id: string; texto: string; esCorrecta: boolean }>,
       idsRespuestasSeleccionadas: [] as string[],
       respuestasSeleccionadas: [] as Array<{
@@ -480,6 +492,12 @@ const buildPreguntaDetalle = (
     puntosObtenidos,
     tipoPregunta,
     tipoInput: getTipoInputForQuestion(pregunta.respuestas, tipoPregunta),
+    ...(typeof pregunta.imagenUrl === "string" && pregunta.imagenUrl.trim()
+      ? { imagenUrl: pregunta.imagenUrl.trim() }
+      : typeof savedPregunta?.imagenUrl === "string" &&
+          savedPregunta.imagenUrl.trim()
+        ? { imagenUrl: savedPregunta.imagenUrl.trim() }
+        : {}),
     esCorrecta: preguntaAcertada === true,
     acertada: preguntaAcertada === true,
     preguntaNoDisponible: sinOpciones,

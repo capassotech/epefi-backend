@@ -185,6 +185,16 @@ const PreguntaExamenSchema = z.object({
   tipoPregunta: z
     .enum(["opcion_multiple", "desarrollo"])
     .default("opcion_multiple"),
+  imagenUrl: z
+    .string()
+    .trim()
+    .optional()
+    .transform((val) => (val && val.length > 0 ? val : undefined)),
+  imagenPath: z
+    .string()
+    .trim()
+    .optional()
+    .transform((val) => (val && val.length > 0 ? val : undefined)),
   respuestas: z
     .array(
       z.object({
@@ -315,12 +325,36 @@ const ExamenBaseSchema = z
       .min(1, "La duración mínima es 1 minuto")
       .max(480, "La duración máxima es 480 minutos")
       .default(90),
+    requiereCompletarCurso: z.boolean().default(true),
+    publicacionManualDeNota: z.boolean().default(false).optional(),
+    notaMinima: z
+      .number({ message: "La nota mínima debe ser un número" })
+      .int("La nota mínima debe ser un número entero")
+      .min(1, "La nota mínima debe ser al menos 1")
+      .max(100, "La nota mínima no puede superar 100")
+      .default(70)
+      .optional(),
     preguntas: z
       .array(PreguntaExamenSchema)
       .min(1, "El examen debe tener al menos una pregunta"),
   })
   .superRefine(validateExamenRespuestasCorrectas)
-  .superRefine(validateExamenPreguntasPuntos);
+  .superRefine(validateExamenPreguntasPuntos)
+  .superRefine((data, ctx) => {
+    if (data.publicacionManualDeNota === true) {
+      const tieneDesarrollo = data.preguntas.some(
+        (p) => (p as any).tipoPregunta === "desarrollo"
+      );
+      if (tieneDesarrollo) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "La publicación manual de nota solo está disponible para exámenes sin preguntas de desarrollo",
+          path: ["publicacionManualDeNota"],
+        });
+      }
+    }
+  });
 
 export const ExamenSchema = z.preprocess(preprocessExamenPuntos, ExamenBaseSchema);
 
@@ -404,7 +438,7 @@ export const CorregirExamenSchema = z.object({
           .optional(),
       })
     )
-    .min(1, "Debés enviar al menos una corrección"),
+    .min(0),
 });
 
 export type ValidatedUser = z.infer<typeof UserSchema>;

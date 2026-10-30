@@ -1,17 +1,21 @@
-/** Porcentaje mínimo de aciertos para aprobar (no cantidad fija de respuestas). */
+
 export const PORCENTAJE_MINIMO_APROBACION = 70;
 
-/** @deprecated Usar PORCENTAJE_MINIMO_APROBACION y porcentajeAciertos */
 export const NOTA_MINIMA_APROBACION = 7;
 
-/** Puntos totales que debe sumar el examen. */
 export const PUNTOS_TOTAL_EXAMEN = 100;
 
-/** Intentos máximos por alumno y examen (incluye envío, tiempo agotado y abandono). */
 export const MAX_INTENTOS_EXAMEN = 3;
 
-export const mensajeIntentosAgotados = (): string =>
-  `Alcanzaste el máximo de ${MAX_INTENTOS_EXAMEN} intentos. La evaluación quedó bloqueada y ya no podés volver a realizarla.`;
+export const isExamenHabilitado = (
+  data?: { habilitado?: boolean } | null
+): boolean => data?.habilitado !== false;
+
+export const MENSAJE_EXAMEN_DESHABILITADO =
+  "Esta evaluación aún no está disponible. Las evaluaciones se habilitarán según el plan de estudios. Si tenés alguna consulta, comunicate con tu profesor.";
+
+export const mensajeIntentosAgotados = (max = MAX_INTENTOS_EXAMEN): string =>
+  `Alcanzaste el máximo de ${max} intentos. La evaluación quedó bloqueada y ya no podés volver a realizarla.`;
 
 export type TipoPregunta = "opcion_multiple" | "desarrollo";
 
@@ -21,8 +25,9 @@ export type ExamenPregunta = {
   id: string;
   texto: string;
   puntos?: number;
-  /** Por defecto opcion_multiple (exámenes legacy). */
   tipoPregunta?: TipoPregunta;
+  imagenUrl?: string;
+  imagenPath?: string;
   respuestas: Array<{
     id: string;
     texto: string;
@@ -45,7 +50,6 @@ export const esPreguntaDesarrollo = (
   pregunta: { tipoPregunta?: TipoPregunta | string | null }
 ): boolean => resolveTipoPregunta(pregunta) === "desarrollo";
 
-/** True si al menos una pregunta es de desarrollo. */
 export const tienePreguntasDesarrollo = (
   preguntas: Array<{ tipoPregunta?: TipoPregunta | string | null }>
 ): boolean => preguntas.some((p) => esPreguntaDesarrollo(p));
@@ -65,7 +69,8 @@ export type ExamenCalificacionResult = {
 };
 
 export const computeGradeFromPuntosObtenidos = (
-  puntosObtenidos: number
+  puntosObtenidos: number,
+  notaMinimaAprobacion: number = PORCENTAJE_MINIMO_APROBACION
 ): Pick<
   ExamenCalificacionResult,
   "puntosObtenidos" | "porcentajeAciertos" | "nota" | "aprobado"
@@ -74,7 +79,7 @@ export const computeGradeFromPuntosObtenidos = (
     (puntosObtenidos / PUNTOS_TOTAL_EXAMEN) * 100
   );
   const nota = roundToOneDecimal((porcentajeAciertos / 100) * 10);
-  const aprobado = porcentajeAciertos >= PORCENTAJE_MINIMO_APROBACION;
+  const aprobado = porcentajeAciertos >= notaMinimaAprobacion;
 
   return { puntosObtenidos, porcentajeAciertos, nota, aprobado };
 };
@@ -95,12 +100,18 @@ export const getTipoInputForQuestion = (
 
 export const mapPreguntaForStudent = (pregunta: ExamenPregunta) => {
   const tipoPregunta = resolveTipoPregunta(pregunta);
+  const imagenUrl =
+    typeof pregunta.imagenUrl === "string" && pregunta.imagenUrl.trim()
+      ? pregunta.imagenUrl.trim()
+      : undefined;
+
   if (tipoPregunta === "desarrollo") {
     return {
       id: pregunta.id,
       texto: pregunta.texto,
       tipoPregunta,
       tipoInput: "textarea" as const,
+      ...(imagenUrl ? { imagenUrl } : {}),
       respuestas: [] as Array<{ id: string; texto: string }>,
     };
   }
@@ -109,22 +120,18 @@ export const mapPreguntaForStudent = (pregunta: ExamenPregunta) => {
     texto: pregunta.texto,
     tipoPregunta,
     tipoInput: getTipoInputForQuestion(pregunta.respuestas, tipoPregunta),
+    ...(imagenUrl ? { imagenUrl } : {}),
     respuestas: (pregunta.respuestas || []).map(({ id, texto }) => ({ id, texto })),
   };
 };
 
-/** Redondea puntos a 2 decimales (centésimas). */
 export const roundPuntos = (value: number): number =>
   Math.round(value * 100) / 100;
 
-/** True si la suma (con 2 decimales) alcanza el total del examen. */
 export const puntosSumEqualsTotal = (sum: number): boolean =>
   roundPuntos(sum) === PUNTOS_TOTAL_EXAMEN;
 
-/**
- * Reparte 100 puntos en partes lo más equitativas posible, con hasta 2 decimales.
- * Ej.: 3 preguntas → [33.34, 33.33, 33.33]
- */
+
 export const distributePuntosEqually = (count: number): number[] => {
   if (count <= 0) return [];
 
@@ -201,11 +208,51 @@ export const isQuestionCorrect = (
   return correctIds.every((id, index) => id === selectedIds[index]);
 };
 
+/**
+ * Calcula los puntos fraccionados para una pregunta de opción múltiple.
+ *
+ * - Base: (correctas_marcadas / totalCorrectas) × puntosPregunta
+ *   → marcar solo las correctas da el puntaje completo.
+ * - Penalidad: incorrectasMarcadas × (puntosPregunta / totalOpciones)
+ *   → cada incorrecta seleccionada descuenta su fracción del total de opciones.
+ * - Resultado tiene piso en 0.
+ *
+ * Ej.: 3 opciones (2 correctas, 1 incorrecta), puntos = 100:
+ *   - Solo las 2 correctas:           (2/2 × 100) − 0       = 100
+ *   - Las 2 correctas + 1 incorrecta: (2/2 × 100) − 33.33   = 66.67
+ *   - Solo 1 correcta:                (1/2 × 100) − 0       = 50
+ */
+export const getQuestionFractionalPoints = (
+  pregunta: ExamenPregunta,
+  respuestasSeleccionadas: string[],
+  puntosPregunta: number
+): number => {
+  const totalOpciones = pregunta.respuestas.length;
+  if (totalOpciones === 0) return 0;
+
+  const correctIds = new Set(
+    pregunta.respuestas.filter((r) => r.esCorrecta === true).map((r) => r.id)
+  );
+  const totalCorrectas = correctIds.size;
+  if (totalCorrectas === 0) return 0;
+
+  const selectedSet = new Set(respuestasSeleccionadas);
+  const acertadas = [...selectedSet].filter((id) => correctIds.has(id)).length;
+  const incorrectasMarcadas = [...selectedSet].filter((id) => !correctIds.has(id)).length;
+
+  const puntosBase = (acertadas / totalCorrectas) * puntosPregunta;
+  const penalidad = incorrectasMarcadas * (puntosPregunta / totalOpciones);
+
+  return roundPuntos(Math.max(0, puntosBase - penalidad));
+};
+
 export type PreguntaExamenSnapshot = {
   id: string;
   texto: string;
   puntos: number;
   tipoPregunta: TipoPregunta;
+  imagenUrl?: string;
+  imagenPath?: string;
   respuestas: Array<{
     id: string;
     texto: string;
@@ -213,24 +260,35 @@ export type PreguntaExamenSnapshot = {
   }>;
 };
 
-/** Copia inmutable de las preguntas al momento de rendir. */
 export const buildPreguntasSnapshot = (
   preguntas: Array<ExamenPregunta & { puntos?: number }>
 ): PreguntaExamenSnapshot[] => {
   const total = preguntas.length;
-  return preguntas.map((pregunta, index) => ({
-    id: pregunta.id,
-    texto: pregunta.texto,
-    puntos: getPreguntaPuntos(pregunta, index, total),
-    tipoPregunta: resolveTipoPregunta(pregunta),
-    respuestas: esPreguntaDesarrollo(pregunta)
-      ? []
-      : (pregunta.respuestas || []).map((r) => ({
-          id: r.id,
-          texto: r.texto,
-          esCorrecta: r.esCorrecta === true,
-        })),
-  }));
+  return preguntas.map((pregunta, index) => {
+    const imagenUrl =
+      typeof pregunta.imagenUrl === "string" && pregunta.imagenUrl.trim()
+        ? pregunta.imagenUrl.trim()
+        : undefined;
+    const imagenPath =
+      typeof pregunta.imagenPath === "string" && pregunta.imagenPath.trim()
+        ? pregunta.imagenPath.trim()
+        : undefined;
+    return {
+      id: pregunta.id,
+      texto: pregunta.texto,
+      puntos: getPreguntaPuntos(pregunta, index, total),
+      tipoPregunta: resolveTipoPregunta(pregunta),
+      ...(imagenUrl ? { imagenUrl } : {}),
+      ...(imagenPath ? { imagenPath } : {}),
+      respuestas: esPreguntaDesarrollo(pregunta)
+        ? []
+        : (pregunta.respuestas || []).map((r) => ({
+            id: r.id,
+            texto: r.texto,
+            esCorrecta: r.esCorrecta === true,
+          })),
+    };
+  });
 };
 
 export type PreguntaExamenRealizadoGuardada = PreguntaExamenSnapshot & {
@@ -241,7 +299,6 @@ export type PreguntaExamenRealizadoGuardada = PreguntaExamenSnapshot & {
   respuestaDesarrollo?: string;
 };
 
-/** Snapshot + resultado por pregunta para persistir en el intento. */
 export const buildPreguntasExamenRealizado = (
   preguntas: Array<ExamenPregunta & { puntos?: number }>,
   respuestasAlumno: RespuestaAlumno[]
@@ -252,16 +309,25 @@ export const buildPreguntasExamenRealizado = (
     const respAlumno = respuestasAlumno.find((r) => r.idPregunta === pregunta.id);
     const seleccionadas = respAlumno?.respuestasSeleccionadas ?? [];
     const desarrollo = esPreguntaDesarrollo(pregunta);
-    // Desarrollo: no se auto-corrige; queda en 0 hasta corrección manual
     const acertada = desarrollo
       ? false
       : isQuestionCorrect(pregunta, seleccionadas);
+    const imagenUrl =
+      typeof pregunta.imagenUrl === "string" && pregunta.imagenUrl.trim()
+        ? pregunta.imagenUrl.trim()
+        : undefined;
+    const imagenPath =
+      typeof pregunta.imagenPath === "string" && pregunta.imagenPath.trim()
+        ? pregunta.imagenPath.trim()
+        : undefined;
     return {
       id: pregunta.id,
       texto: pregunta.texto,
       puntos,
       tipoPregunta: resolveTipoPregunta(pregunta),
-      puntosObtenidos: desarrollo ? 0 : acertada ? puntos : 0,
+      ...(imagenUrl ? { imagenUrl } : {}),
+      ...(imagenPath ? { imagenPath } : {}),
+      puntosObtenidos: desarrollo ? 0 : getQuestionFractionalPoints(pregunta, seleccionadas, puntos),
       acertada,
       esCorrecta: acertada,
       respuestas: desarrollo
@@ -281,7 +347,8 @@ export const buildPreguntasExamenRealizado = (
 
 export const calculateExamenGrade = (
   preguntas: ExamenPregunta[],
-  respuestasAlumno: RespuestaAlumno[]
+  respuestasAlumno: RespuestaAlumno[],
+  notaMinimaAprobacion: number = PORCENTAJE_MINIMO_APROBACION
 ): ExamenCalificacionResult => {
   const totalPreguntas = preguntas.length;
 
@@ -300,21 +367,20 @@ export const calculateExamenGrade = (
   let puntosObtenidos = 0;
 
   preguntas.forEach((pregunta, index) => {
-    // Preguntas de desarrollo no se auto-califican
     if (esPreguntaDesarrollo(pregunta)) return;
 
     const puntosPregunta = getPreguntaPuntos(pregunta, index, totalPreguntas);
     const respuesta = respuestasAlumno.find((r) => r.idPregunta === pregunta.id);
     const seleccionadas = respuesta?.respuestasSeleccionadas ?? [];
+    const puntosGanados = getQuestionFractionalPoints(pregunta, seleccionadas, puntosPregunta);
     if (isQuestionCorrect(pregunta, seleccionadas)) {
       respuestasCorrectas++;
-      puntosObtenidos += puntosPregunta;
     }
+    puntosObtenidos += puntosGanados;
   });
 
-  const grade = computeGradeFromPuntosObtenidos(puntosObtenidos);
+  const grade = computeGradeFromPuntosObtenidos(puntosObtenidos, notaMinimaAprobacion);
 
-  // Si hay desarrollo pendiente, no se aprueba hasta la corrección manual
   if (tienePreguntasDesarrollo(preguntas)) {
     return {
       totalPreguntas,

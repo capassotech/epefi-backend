@@ -4,6 +4,7 @@ import type { AuthenticatedRequest } from "../../middleware/authMiddleware";
 import { ValidatedExamen } from "../../types/schemas";
 import { formatFirestoreDoc, validateUser } from "../../utils/utils";
 import type { ExamenPregunta } from "../../utils/examenScoring";
+import { isExamenHabilitado } from "../../utils/examenScoring";
 import {
   backfillSnapshotsForExamen,
   saveExamenPreguntasVersion,
@@ -140,6 +141,7 @@ export const createExamen = async (req: AuthenticatedRequest, res: Response) => 
         typeof examenData.duracionMinutos === "number"
           ? examenData.duracionMinutos
           : 90,
+      habilitado: true,
       fechaCreacion: now,
       fechaActualizacion: now,
     };
@@ -201,6 +203,8 @@ export const updateExamen = async (req: AuthenticatedRequest, res: Response) => 
           : typeof existingData?.duracionMinutos === "number"
             ? existingData.duracionMinutos
             : 90,
+      // Preservar flag de habilitación (no viaja en el schema de edición)
+      habilitado: isExamenHabilitado(existingData),
       fechaCreacion: existingData?.fechaCreacion ?? now,
       fechaActualizacion: now,
     };
@@ -238,5 +242,45 @@ export const deleteExamen = async (req: AuthenticatedRequest, res: Response) => 
   } catch (error) {
     console.error("deleteExamen error:", error);
     return res.status(500).json({ error: "Error al eliminar examen" });
+  }
+};
+
+export const setExamenHabilitado = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    if (!(await requireAdmin(req, res))) return;
+
+    const { id } = req.params;
+    const habilitado = req.body?.habilitado;
+
+    if (typeof habilitado !== "boolean") {
+      return res.status(400).json({
+        error: 'El campo "habilitado" debe ser un booleano',
+      });
+    }
+
+    const examenDoc = await examenesCollection.doc(id).get();
+    if (!examenDoc.exists) {
+      return res.status(404).json({ error: "Examen no encontrado" });
+    }
+
+    await examenesCollection.doc(id).update({
+      habilitado,
+      fechaActualizacion: new Date(),
+    });
+
+    const updatedDoc = await examenesCollection.doc(id).get();
+
+    return res.json({
+      message: `Examen ${habilitado ? "habilitado" : "deshabilitado"} exitosamente`,
+      ...formatFirestoreDoc(updatedDoc),
+    });
+  } catch (error) {
+    console.error("setExamenHabilitado error:", error);
+    return res.status(500).json({
+      error: "Error al actualizar el estado del examen",
+    });
   }
 };

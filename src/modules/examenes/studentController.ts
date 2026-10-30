@@ -8,11 +8,17 @@ import {
 } from "../../utils/formacionProgress";
 import {
   ExamenPregunta,
+  isExamenHabilitado,
   MAX_INTENTOS_EXAMEN,
   mapPreguntaForStudent,
+  MENSAJE_EXAMEN_DESHABILITADO,
   mensajeIntentosAgotados,
   shuffleArray,
 } from "../../utils/examenScoring";
+import {
+  findOverrideExamenIdForFormacion,
+  resolveIntentosMaximos,
+} from "../../utils/examenIntentosService";
 
 const examenesCollection = firestore.collection("examenes");
 const examenesRealizadosCollection = firestore.collection("examenes_realizados");
@@ -24,14 +30,38 @@ const getUserOr404 = async (uid: string) => {
   return { id: userDoc.id, data: userDoc.data()! };
 };
 
-const getExamenDocByFormacion = async (idFormacion: string) => {
+const getExamenDocByFormacion = async (
+  idFormacion: string,
+  idAlumno?: string
+) => {
   const snapshot = await examenesCollection
     .where("idFormacion", "==", idFormacion)
-    .limit(1)
     .get();
 
   if (snapshot.empty) return null;
-  return snapshot.docs[0];
+
+  const docs = snapshot.docs;
+  if (docs.length === 1) return docs[0];
+
+  // Si el alumno tiene intentos personalizados en un examen de esta formación,
+  // preferir ese examen (evita .limit(1) arbitrario cuando hay varios).
+  if (idAlumno) {
+    const overrideExamenId = await findOverrideExamenIdForFormacion(
+      idAlumno,
+      idFormacion
+    );
+    if (overrideExamenId) {
+      const match = docs.find((doc) => doc.id === overrideExamenId);
+      if (match) return match;
+    }
+  }
+
+  // Fallback estable: el más reciente por fechaCreacion
+  return [...docs].sort((a, b) => {
+    const aDate = new Date(a.data()?.fechaCreacion || 0).getTime();
+    const bDate = new Date(b.data()?.fechaCreacion || 0).getTime();
+    return bDate - aDate;
+  })[0];
 };
 
 const getIntentosAlumno = async (idAlumno: string, idExamen: string) => {
@@ -78,32 +108,41 @@ export const getExamenEstadoFormacion = async (
       user.data.modulos_habilitados || {}
     );
 
-    const examenDoc = await getExamenDocByFormacion(idFormacion);
+    const examenDoc = await getExamenDocByFormacion(idFormacion, uid);
     const examenId = examenDoc?.id ?? null;
     const examenData = examenDoc?.data();
 
     let ultimoIntento = null;
     let intentosUsados = 0;
+    let intentosMaximos = MAX_INTENTOS_EXAMEN;
     if (examenId) {
-      const intentos = await getIntentosAlumno(uid, examenId);
+      const [intentos, maxIntentos] = await Promise.all([
+        getIntentosAlumno(uid, examenId),
+        resolveIntentosMaximos(uid, examenId, idFormacion),
+      ]);
       ultimoIntento = intentos.ultimo;
       intentosUsados = intentos.total;
+      intentosMaximos = maxIntentos;
     }
 
     const formacionCompleta = progresoFormacion.completo;
-    const examenDisponible = formacionCompleta && examenId !== null;
+    const requiereCompletarCurso = examenData?.requiereCompletarCurso !== false;
+    const examenHabilitado = isExamenHabilitado(examenData);
+    const examenDisponible =
+      examenId !== null && (formacionCompleta || !requiereCompletarCurso);
     const yaAprobo = ultimoIntento?.aprobado === true;
     const tieneIntentoPrevio = ultimoIntento !== null;
     const pendienteCorreccion =
       ultimoIntento?.estado === "pendiente_correccion";
     const intentosAgotados =
-      intentosUsados >= MAX_INTENTOS_EXAMEN && !yaAprobo && !pendienteCorreccion;
+      intentosUsados >= intentosMaximos && !yaAprobo && !pendienteCorreccion;
     const puedeRealizar =
       examenId !== null &&
+      examenHabilitado &&
       !yaAprobo &&
       !pendienteCorreccion &&
       !intentosAgotados &&
-      (formacionCompleta || tieneIntentoPrevio);
+      (formacionCompleta || tieneIntentoPrevio || !requiereCompletarCurso);
 
     return res.json({
       idFormacion,
@@ -114,8 +153,14 @@ export const getExamenEstadoFormacion = async (
         modulosPendientes: progresoFormacion.modulosPendientes,
       },
       examenDisponible,
+      examenHabilitado,
       idExamen: examenId,
       tituloExamen: examenData?.titulo ?? null,
+      notaMinima:
+        typeof examenData?.notaMinima === "number" && examenData.notaMinima > 0
+          ? examenData.notaMinima
+          : 70,
+      requiereCompletarCurso,
       duracionMinutos:
         typeof examenData?.duracionMinutos === "number" &&
         examenData.duracionMinutos > 0
@@ -140,11 +185,16 @@ export const getExamenEstadoFormacion = async (
         : null,
       puedeRealizar,
       intentosUsados,
-      intentosMaximos: MAX_INTENTOS_EXAMEN,
+      intentosMaximos,
       intentosAgotados,
-      mensajeBloqueo: intentosAgotados ? mensajeIntentosAgotados() : null,
+      mensajeBloqueo: !examenHabilitado
+        ? MENSAJE_EXAMEN_DESHABILITADO
+        : intentosAgotados
+          ? mensajeIntentosAgotados(intentosMaximos)
+          : null,
       puedeReintentar:
         examenId !== null &&
+        examenHabilitado &&
         !yaAprobo &&
         !pendienteCorreccion &&
         !intentosAgotados &&
@@ -183,8 +233,20 @@ export const getExamenParaAlumno = async (
       });
     }
 
+    if (!isExamenHabilitado(examenData)) {
+      return res.status(403).json({
+        codigo: "EXAMEN_DESHABILITADO",
+        error: MENSAJE_EXAMEN_DESHABILITADO,
+      });
+    }
+
     const { ultimo: ultimoIntento, total: intentosUsados } =
       await getIntentosAlumno(uid, idExamen);
+    const intentosMaximos = await resolveIntentosMaximos(
+      uid,
+      idExamen,
+      idFormacion
+    );
     const esReintentoNoAprobado =
       ultimoIntento !== null && ultimoIntento.aprobado !== true;
 
@@ -208,32 +270,36 @@ export const getExamenParaAlumno = async (
       });
     }
 
-    if (intentosUsados >= MAX_INTENTOS_EXAMEN) {
+    if (intentosUsados >= intentosMaximos) {
       return res.status(403).json({
         codigo: "INTENTOS_AGOTADOS",
-        error: mensajeIntentosAgotados(),
+        error: mensajeIntentosAgotados(intentosMaximos),
         intentosUsados,
-        intentosMaximos: MAX_INTENTOS_EXAMEN,
+        intentosMaximos,
       });
     }
 
-    const progresoFormacion = await getFormationProgress(
-      idFormacion,
-      user.data.progreso || {},
-      user.data.modulos_habilitados || {}
-    );
+    const requiereCompletarCurso = examenData.requiereCompletarCurso !== false;
 
-    if (!progresoFormacion.completo && !esReintentoNoAprobado) {
-      return res.status(403).json({
-        codigo: "MODULOS_INCOMPLETOS",
-        error:
-          "Debés completar todos los módulos de la formación antes de realizar la evaluación",
-        progresoFormacion: {
-          totalModulos: progresoFormacion.totalModulos,
-          modulosCompletados: progresoFormacion.modulosCompletados,
-          modulosPendientes: progresoFormacion.modulosPendientes,
-        },
-      });
+    if (requiereCompletarCurso) {
+      const progresoFormacion = await getFormationProgress(
+        idFormacion,
+        user.data.progreso || {},
+        user.data.modulos_habilitados || {}
+      );
+
+      if (!progresoFormacion.completo && !esReintentoNoAprobado) {
+        return res.status(403).json({
+          codigo: "MODULOS_INCOMPLETOS",
+          error:
+            "Debés completar todos los módulos de la formación antes de realizar la evaluación",
+          progresoFormacion: {
+            totalModulos: progresoFormacion.totalModulos,
+            modulosCompletados: progresoFormacion.modulosCompletados,
+            modulosPendientes: progresoFormacion.modulosPendientes,
+          },
+        });
+      }
     }
 
     const aleatorioExplicito =
@@ -257,6 +323,10 @@ export const getExamenParaAlumno = async (
         examenData.duracionMinutos > 0
           ? examenData.duracionMinutos
           : 90,
+      notaMinima:
+        typeof examenData.notaMinima === "number" && examenData.notaMinima > 0
+          ? examenData.notaMinima
+          : 70,
       esReintento,
       preguntasAleatorias: aleatorio,
       preguntas: preguntasOrdenadas,
