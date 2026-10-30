@@ -208,7 +208,20 @@ export const isQuestionCorrect = (
   return correctIds.every((id, index) => id === selectedIds[index]);
 };
 
-
+/**
+ * Calcula los puntos fraccionados para una pregunta de opción múltiple.
+ *
+ * - Base: (correctas_marcadas / totalCorrectas) × puntosPregunta
+ *   → marcar solo las correctas da el puntaje completo.
+ * - Penalidad: incorrectasMarcadas × (puntosPregunta / totalOpciones)
+ *   → cada incorrecta seleccionada descuenta su fracción del total de opciones.
+ * - Resultado tiene piso en 0.
+ *
+ * Ej.: 3 opciones (2 correctas, 1 incorrecta), puntos = 100:
+ *   - Solo las 2 correctas:           (2/2 × 100) − 0       = 100
+ *   - Las 2 correctas + 1 incorrecta: (2/2 × 100) − 33.33   = 66.67
+ *   - Solo 1 correcta:                (1/2 × 100) − 0       = 50
+ */
 export const getQuestionFractionalPoints = (
   pregunta: ExamenPregunta,
   respuestasSeleccionadas: string[],
@@ -220,16 +233,17 @@ export const getQuestionFractionalPoints = (
   const correctIds = new Set(
     pregunta.respuestas.filter((r) => r.esCorrecta === true).map((r) => r.id)
   );
-  if (correctIds.size === 0) return 0;
+  const totalCorrectas = correctIds.size;
+  if (totalCorrectas === 0) return 0;
 
   const selectedSet = new Set(respuestasSeleccionadas);
   const acertadas = [...selectedSet].filter((id) => correctIds.has(id)).length;
   const incorrectasMarcadas = [...selectedSet].filter((id) => !correctIds.has(id)).length;
 
-  const puntosPorOpcion = puntosPregunta / totalOpciones;
-  const puntos = (acertadas - incorrectasMarcadas) * puntosPorOpcion;
+  const puntosBase = (acertadas / totalCorrectas) * puntosPregunta;
+  const penalidad = incorrectasMarcadas * (puntosPregunta / totalOpciones);
 
-  return roundPuntos(Math.max(0, puntos));
+  return roundPuntos(Math.max(0, puntosBase - penalidad));
 };
 
 export type PreguntaExamenSnapshot = {
