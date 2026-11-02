@@ -14,6 +14,7 @@ import {
 import {
   getAlumnosIntentosExamenAdmin,
   resetIntentosExamenAlumnoAdmin,
+  setIntentosDefaultExamenAdmin,
   upsertIntentosExamenAlumnoAdmin,
 } from "./intentosAdminController";
 import {
@@ -79,6 +80,9 @@ const upsertIntentosHandler = (req: Request, res: Response) =>
 const resetIntentosHandler = (req: Request, res: Response) =>
   resetIntentosExamenAlumnoAdmin(req as AuthenticatedRequest, res);
 
+const setIntentosDefaultHandler = (req: Request, res: Response) =>
+  setIntentosDefaultExamenAdmin(req as AuthenticatedRequest, res);
+
 const setHabilitadoHandler = (req: Request, res: Response) =>
   setExamenHabilitado(req as AuthenticatedRequest, res);
 
@@ -93,6 +97,16 @@ router.get(
   "/alumno/:idExamen",
   authMiddleware,
   getExamenParaAlumnoHandler
+);
+
+// Admin: límite general de intentos del examen (todos los alumnos)
+router.patch(
+  "/:id/intentos-default",
+  authMiddleware,
+  validateParams(IdParamSchema),
+  basicSanitization,
+  validateBody(UpsertIntentosBodySchema),
+  setIntentosDefaultHandler
 );
 
 // Admin: intentos personalizados por alumno

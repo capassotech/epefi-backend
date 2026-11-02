@@ -4,7 +4,11 @@ import type { AuthenticatedRequest } from "../../middleware/authMiddleware";
 import { ValidatedExamen } from "../../types/schemas";
 import { formatFirestoreDoc, validateUser } from "../../utils/utils";
 import type { ExamenPregunta } from "../../utils/examenScoring";
-import { isExamenHabilitado } from "../../utils/examenScoring";
+import {
+  getIntentosDefaultExamen,
+  INTENTOS_EXAMEN_NUEVO,
+  isExamenHabilitado,
+} from "../../utils/examenScoring";
 import {
   backfillSnapshotsForExamen,
   saveExamenPreguntasVersion,
@@ -141,6 +145,10 @@ export const createExamen = async (req: AuthenticatedRequest, res: Response) => 
         typeof examenData.duracionMinutos === "number"
           ? examenData.duracionMinutos
           : 90,
+      intentosMaximos:
+        typeof examenData.intentosMaximos === "number"
+          ? examenData.intentosMaximos
+          : INTENTOS_EXAMEN_NUEVO,
       habilitado: true,
       fechaCreacion: now,
       fechaActualizacion: now,
@@ -203,6 +211,10 @@ export const updateExamen = async (req: AuthenticatedRequest, res: Response) => 
           : typeof existingData?.duracionMinutos === "number"
             ? existingData.duracionMinutos
             : 90,
+      intentosMaximos:
+        typeof examenData.intentosMaximos === "number"
+          ? examenData.intentosMaximos
+          : getIntentosDefaultExamen(existingData),
       // Preservar flag de habilitación (no viaja en el schema de edición)
       habilitado: isExamenHabilitado(existingData),
       fechaCreacion: existingData?.fechaCreacion ?? now,

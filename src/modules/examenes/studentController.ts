@@ -8,8 +8,8 @@ import {
 } from "../../utils/formacionProgress";
 import {
   ExamenPregunta,
+  getIntentosDefaultExamen,
   isExamenHabilitado,
-  MAX_INTENTOS_EXAMEN,
   mapPreguntaForStudent,
   MENSAJE_EXAMEN_DESHABILITADO,
   mensajeIntentosAgotados,
@@ -114,11 +114,11 @@ export const getExamenEstadoFormacion = async (
 
     let ultimoIntento = null;
     let intentosUsados = 0;
-    let intentosMaximos = MAX_INTENTOS_EXAMEN;
+    let intentosMaximos = getIntentosDefaultExamen(examenData);
     if (examenId) {
       const [intentos, maxIntentos] = await Promise.all([
         getIntentosAlumno(uid, examenId),
-        resolveIntentosMaximos(uid, examenId, idFormacion),
+        resolveIntentosMaximos(uid, examenId, idFormacion, intentosMaximos),
       ]);
       ultimoIntento = intentos.ultimo;
       intentosUsados = intentos.total;
@@ -245,7 +245,8 @@ export const getExamenParaAlumno = async (
     const intentosMaximos = await resolveIntentosMaximos(
       uid,
       idExamen,
-      idFormacion
+      idFormacion,
+      getIntentosDefaultExamen(examenData)
     );
     const esReintentoNoAprobado =
       ultimoIntento !== null && ultimoIntento.aprobado !== true;

@@ -5,7 +5,20 @@ export const NOTA_MINIMA_APROBACION = 7;
 
 export const PUNTOS_TOTAL_EXAMEN = 100;
 
+/** Fallback para exámenes viejos que no tienen `intentosMaximos` configurado. */
 export const MAX_INTENTOS_EXAMEN = 3;
+
+/** Valor inicial sugerido al crear un examen nuevo. */
+export const INTENTOS_EXAMEN_NUEVO = 1;
+
+/** Límite general de intentos del examen (aplica a todos los alumnos sin override). */
+export const getIntentosDefaultExamen = (
+  data?: { intentosMaximos?: unknown } | null
+): number => {
+  const value = Number(data?.intentosMaximos);
+  if (!Number.isFinite(value) || value < 1) return MAX_INTENTOS_EXAMEN;
+  return Math.floor(value);
+};
 
 export const isExamenHabilitado = (
   data?: { habilitado?: boolean } | null

@@ -13,6 +13,7 @@ import {
   calculateExamenGrade,
   esPreguntaDesarrollo,
   ExamenPregunta,
+  getIntentosDefaultExamen,
   isExamenHabilitado,
   MENSAJE_EXAMEN_DESHABILITADO,
   mensajeIntentosAgotados,
@@ -91,7 +92,8 @@ export const submitExamenRealizado = async (
     const intentosMaximos = await resolveIntentosMaximos(
       uid,
       payload.idExamen,
-      payload.idFormacion
+      payload.idFormacion,
+      getIntentosDefaultExamen(examenData)
     );
     const esReintentoNoAprobado =
       ultimoIntento !== undefined && ultimoIntento.aprobado !== true;
@@ -394,7 +396,13 @@ export const getMisIntentosExamen = async (
       });
 
     const ultimo = intentos[0] ?? null;
-    const intentosMaximos = await resolveIntentosMaximos(uid, idExamen);
+    const examenDoc = await examenesCollection.doc(idExamen).get();
+    const intentosMaximos = await resolveIntentosMaximos(
+      uid,
+      idExamen,
+      undefined,
+      getIntentosDefaultExamen(examenDoc.data())
+    );
 
     return res.json({
       totalIntentos: intentos.length,

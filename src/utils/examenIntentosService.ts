@@ -33,9 +33,10 @@ const normalizeIntentosMaximos = (raw: unknown): number | null => {
 export const resolveIntentosMaximos = async (
   idAlumno: string,
   idExamen: string,
-  idFormacion?: string
+  idFormacion?: string,
+  intentosDefault: number = MAX_INTENTOS_EXAMEN
 ): Promise<number> => {
-  if (!idAlumno) return MAX_INTENTOS_EXAMEN;
+  if (!idAlumno) return intentosDefault;
 
   if (idExamen) {
     const doc = await intentosUsuarioCollection
@@ -63,7 +64,7 @@ export const resolveIntentosMaximos = async (
     }
   }
 
-  return MAX_INTENTOS_EXAMEN;
+  return intentosDefault;
 };
 
 /** Examen de la formación con override personalizado para el alumno, si existe. */
@@ -157,6 +158,7 @@ export type AlumnoIntentosRow = {
 export const listAlumnosIntentosParaExamen = async (params: {
   idExamen: string;
   idFormacion: string;
+  intentosDefault: number;
   search?: string;
 }): Promise<AlumnoIntentosRow[]> => {
   const [usersSnap, overridesSnap, intentosSnap] = await Promise.all([
@@ -197,7 +199,7 @@ export const listAlumnosIntentosParaExamen = async (params: {
       const email = String(data.email || "");
       const idAlumno = doc.id;
       const override = overridesByAlumno.get(idAlumno);
-      const intentosMaximos = override ?? MAX_INTENTOS_EXAMEN;
+      const intentosMaximos = override ?? params.intentosDefault;
 
       return {
         idAlumno,
@@ -206,7 +208,7 @@ export const listAlumnosIntentosParaExamen = async (params: {
         intentosUsados: usadosByAlumno.get(idAlumno) || 0,
         intentosMaximos,
         esOverride: override != null,
-        intentosDefault: MAX_INTENTOS_EXAMEN,
+        intentosDefault: params.intentosDefault,
       };
     })
     .filter((row) => {
