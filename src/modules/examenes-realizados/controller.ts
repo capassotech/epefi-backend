@@ -141,7 +141,7 @@ export const submitExamenRealizado = async (
     const esCierreForzado =
       payload.motivoCierre === "tiempo" || payload.motivoCierre === "abandono";
 
-    // Completar respuestas faltantes en cierre por tiempo/abandono
+    // Completar respuestas faltantes: las preguntas sin responder cuentan como incorrectas
     const respuestasPorPregunta = new Map(
       payload.respuestas.map((r) => [
         r.idPregunta,
@@ -165,34 +165,6 @@ export const submitExamenRealizado = async (
         respuestasSeleccionadas: raw?.respuestasSeleccionadas ?? [],
       };
     });
-
-    if (!esCierreForzado) {
-      for (const pregunta of preguntas) {
-        const respuesta = respuestasNormalizadas.find(
-          (r) => r.idPregunta === pregunta.id
-        );
-        if (!respuesta) {
-          return res.status(400).json({
-            error: "Debés responder todas las preguntas del examen",
-          });
-        }
-
-        if (esPreguntaDesarrollo(pregunta)) {
-          if (!respuesta.respuestaDesarrollo?.trim()) {
-            return res.status(400).json({
-              error: "Debés responder todas las preguntas del examen",
-            });
-          }
-          continue;
-        }
-
-        if (respuesta.respuestasSeleccionadas.length === 0) {
-          return res.status(400).json({
-            error: "Debés responder todas las preguntas del examen",
-          });
-        }
-      }
-    }
 
     for (const respuesta of respuestasNormalizadas) {
       const pregunta = preguntas.find((p) => p.id === respuesta.idPregunta);
@@ -221,14 +193,9 @@ export const submitExamenRealizado = async (
         const correctas = (pregunta.respuestas || []).filter(
           (r) => r.esCorrecta
         ).length;
-        if (correctas === 1 && respuesta.respuestasSeleccionadas.length !== 1) {
+        if (correctas === 1 && respuesta.respuestasSeleccionadas.length > 1) {
           return res.status(400).json({
             error: `La pregunta ${respuesta.idPregunta} admite una sola respuesta`,
-          });
-        }
-        if (correctas > 1 && respuesta.respuestasSeleccionadas.length === 0) {
-          return res.status(400).json({
-            error: `La pregunta ${respuesta.idPregunta} requiere al menos una respuesta`,
           });
         }
       }
