@@ -20,7 +20,12 @@ import {
   normalizePreguntasPuntos,
   resolveEstadoExamenRealizado,
 } from "../../utils/examenScoring";
-import { resolveIntentosMaximos } from "../../utils/examenIntentosService";
+import {
+  isRevisionHabilitadaAlumno,
+  puedeRevisarExamen,
+  resolveIntentosMaximos,
+  resolvePuedeRevisarExamen,
+} from "../../utils/examenIntentosService";
 import { buildExamenRealizadoDetalle } from "../../utils/examenesRealizadosService";
 
 const examenesCollection = firestore.collection("examenes");
@@ -256,6 +261,18 @@ export const submitExamenRealizado = async (
 
     const puedeReintentar =
       estado === "completado" && !calificacion.aprobado && !ahoraAgotoIntentos;
+    const puedeRevisar =
+      estado === "completado" &&
+      puedeRevisarExamen({
+        examenData,
+        aprobado: calificacion.aprobado,
+        intentosUsados: intentosUsados + 1,
+        intentosMaximos,
+        revisionHabilitadaAlumno: await isRevisionHabilitadaAlumno(
+          uid,
+          payload.idExamen
+        ),
+      });
 
     const mensajePorMotivo =
       payload.motivoCierre === "tiempo"
@@ -291,6 +308,7 @@ export const submitExamenRealizado = async (
         intentosUsados: intentoNumero,
         intentosMaximos,
         puedeReintentar,
+        puedeRevisar,
         publicacionManualDeNota: publicacionManual,
       },
     });
@@ -324,6 +342,20 @@ export const getMiExamenRealizadoDetalle = async (
         codigo: "DETALLE_PENDIENTE_CORRECCION",
         error:
           "El detalle del examen estará disponible una vez que el docente lo corrija",
+      });
+    }
+
+    const examenDoc = await examenesCollection.doc(detalle.idExamen).get();
+    const puedeRevisar = await resolvePuedeRevisarExamen(
+      uid,
+      detalle.idExamen,
+      examenDoc.data()
+    );
+    if (!puedeRevisar) {
+      return res.status(403).json({
+        codigo: "REVISION_NO_DISPONIBLE",
+        error:
+          "La revisión del examen estará disponible cuando apruebes o uses todos tus intentos",
       });
     }
 

@@ -5,8 +5,8 @@ export const NOTA_MINIMA_APROBACION = 7;
 
 export const PUNTOS_TOTAL_EXAMEN = 100;
 
-/** Fallback para exámenes viejos que no tienen `intentosMaximos` configurado. */
-export const MAX_INTENTOS_EXAMEN = 3;
+/** Fallback para exámenes que no tienen `intentosMaximos` configurado. */
+export const MAX_INTENTOS_EXAMEN = 1;
 
 /** Valor inicial sugerido al crear un examen nuevo. */
 export const INTENTOS_EXAMEN_NUEVO = 1;
@@ -23,6 +23,11 @@ export const getIntentosDefaultExamen = (
 export const isExamenHabilitado = (
   data?: { habilitado?: boolean } | null
 ): boolean => data?.habilitado !== false;
+
+/** Switch general de revisión del examen. Si falta, se considera permitida. */
+export const isRevisionPermitida = (
+  data?: { permitirRevision?: boolean } | null
+): boolean => data?.permitirRevision !== false;
 
 export const MENSAJE_EXAMEN_DESHABILITADO =
   "Esta evaluación aún no está disponible. Las evaluaciones se habilitarán según el plan de estudios. Si tenés alguna consulta, comunicate con tu profesor.";

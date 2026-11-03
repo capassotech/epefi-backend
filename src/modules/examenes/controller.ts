@@ -8,6 +8,7 @@ import {
   getIntentosDefaultExamen,
   INTENTOS_EXAMEN_NUEVO,
   isExamenHabilitado,
+  isRevisionPermitida,
 } from "../../utils/examenScoring";
 import {
   backfillSnapshotsForExamen,
@@ -149,6 +150,7 @@ export const createExamen = async (req: AuthenticatedRequest, res: Response) => 
         typeof examenData.intentosMaximos === "number"
           ? examenData.intentosMaximos
           : INTENTOS_EXAMEN_NUEVO,
+      permitirRevision: examenData.permitirRevision !== false,
       habilitado: true,
       fechaCreacion: now,
       fechaActualizacion: now,
@@ -215,6 +217,10 @@ export const updateExamen = async (req: AuthenticatedRequest, res: Response) => 
         typeof examenData.intentosMaximos === "number"
           ? examenData.intentosMaximos
           : getIntentosDefaultExamen(existingData),
+      permitirRevision:
+        typeof examenData.permitirRevision === "boolean"
+          ? examenData.permitirRevision
+          : isRevisionPermitida(existingData),
       // Preservar flag de habilitación (no viaja en el schema de edición)
       habilitado: isExamenHabilitado(existingData),
       fechaCreacion: existingData?.fechaCreacion ?? now,

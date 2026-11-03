@@ -1,8 +1,15 @@
 import { firestore } from "../config/firebase";
-import { MAX_INTENTOS_EXAMEN } from "./examenScoring";
+import {
+  getIntentosDefaultExamen,
+  isRevisionPermitida,
+  MAX_INTENTOS_EXAMEN,
+} from "./examenScoring";
 
 const intentosUsuarioCollection = firestore.collection(
   "examenes_intentos_usuario"
+);
+const revisionUsuarioCollection = firestore.collection(
+  "examenes_revision_usuario"
 );
 const examenesRealizadosCollection = firestore.collection(
   "examenes_realizados"
@@ -142,6 +149,90 @@ export const deleteIntentosOverride = async (
     .delete();
 };
 
+// ---------- Revisión del examen ----------
+
+/** Excepción manual: el admin habilitó la revisión a este alumno. */
+export const isRevisionHabilitadaAlumno = async (
+  idAlumno: string,
+  idExamen: string
+): Promise<boolean> => {
+  const doc = await revisionUsuarioCollection
+    .doc(buildIntentosUsuarioDocId(idAlumno, idExamen))
+    .get();
+  return doc.exists && doc.data()?.habilitada === true;
+};
+
+export const setRevisionHabilitadaAlumno = async (params: {
+  idAlumno: string;
+  idExamen: string;
+  idFormacion: string;
+  habilitada: boolean;
+  updatedBy: string;
+}): Promise<void> => {
+  const ref = revisionUsuarioCollection.doc(
+    buildIntentosUsuarioDocId(params.idAlumno, params.idExamen)
+  );
+  if (!params.habilitada) {
+    await ref.delete();
+    return;
+  }
+  await ref.set({
+    idAlumno: params.idAlumno,
+    idExamen: params.idExamen,
+    idFormacion: params.idFormacion,
+    habilitada: true,
+    updatedAt: new Date(),
+    updatedBy: params.updatedBy,
+  });
+};
+
+/**
+ * El alumno puede revisar si el admin se lo habilitó manualmente, o si el examen
+ * permite revisión y el alumno aprobó o agotó sus intentos (así no conoce las
+ * respuestas mientras pueda volver a rendir).
+ */
+export const puedeRevisarExamen = (params: {
+  examenData: { permitirRevision?: boolean } | null | undefined;
+  aprobado: boolean;
+  intentosUsados: number;
+  intentosMaximos: number;
+  revisionHabilitadaAlumno: boolean;
+}): boolean =>
+  params.revisionHabilitadaAlumno ||
+  (isRevisionPermitida(params.examenData) &&
+    (params.aprobado || params.intentosUsados >= params.intentosMaximos));
+
+/** Resuelve todo lo necesario para `puedeRevisarExamen` a partir de Firestore. */
+export const resolvePuedeRevisarExamen = async (
+  idAlumno: string,
+  idExamen: string,
+  examenData: Record<string, any> | null | undefined
+): Promise<boolean> => {
+  const idFormacion = String(examenData?.idFormacion || "").trim() || undefined;
+  const [intentosSnap, intentosMaximos, revisionHabilitadaAlumno] =
+    await Promise.all([
+      examenesRealizadosCollection
+        .where("idAlumno", "==", idAlumno)
+        .where("idExamen", "==", idExamen)
+        .get(),
+      resolveIntentosMaximos(
+        idAlumno,
+        idExamen,
+        idFormacion,
+        getIntentosDefaultExamen(examenData)
+      ),
+      isRevisionHabilitadaAlumno(idAlumno, idExamen),
+    ]);
+
+  return puedeRevisarExamen({
+    examenData,
+    aprobado: intentosSnap.docs.some((doc) => doc.data()?.aprobado === true),
+    intentosUsados: intentosSnap.size,
+    intentosMaximos,
+    revisionHabilitadaAlumno,
+  });
+};
+
 export type AlumnoIntentosRow = {
   idAlumno: string;
   nombreAlumno: string;
@@ -150,6 +241,7 @@ export type AlumnoIntentosRow = {
   intentosMaximos: number;
   esOverride: boolean;
   intentosDefault: number;
+  revisionHabilitada: boolean;
 };
 
 /**
@@ -161,17 +253,27 @@ export const listAlumnosIntentosParaExamen = async (params: {
   intentosDefault: number;
   search?: string;
 }): Promise<AlumnoIntentosRow[]> => {
-  const [usersSnap, overridesSnap, intentosSnap] = await Promise.all([
-    usersCollection
-      .where("cursos_asignados", "array-contains", params.idFormacion)
-      .get(),
-    intentosUsuarioCollection
-      .where("idExamen", "==", params.idExamen)
-      .get(),
-    examenesRealizadosCollection
-      .where("idExamen", "==", params.idExamen)
-      .get(),
-  ]);
+  const [usersSnap, overridesSnap, intentosSnap, revisionSnap] =
+    await Promise.all([
+      usersCollection
+        .where("cursos_asignados", "array-contains", params.idFormacion)
+        .get(),
+      intentosUsuarioCollection
+        .where("idExamen", "==", params.idExamen)
+        .get(),
+      examenesRealizadosCollection
+        .where("idExamen", "==", params.idExamen)
+        .get(),
+      revisionUsuarioCollection
+        .where("idExamen", "==", params.idExamen)
+        .get(),
+    ]);
+
+  const revisionHabilitadaPorAlumno = new Set(
+    revisionSnap.docs
+      .filter((doc) => doc.data()?.habilitada === true)
+      .map((doc) => String(doc.data()?.idAlumno || "").trim())
+  );
 
   const overridesByAlumno = new Map<string, number>();
   for (const doc of overridesSnap.docs) {
@@ -209,6 +311,7 @@ export const listAlumnosIntentosParaExamen = async (params: {
         intentosMaximos,
         esOverride: override != null,
         intentosDefault: params.intentosDefault,
+        revisionHabilitada: revisionHabilitadaPorAlumno.has(idAlumno),
       };
     })
     .filter((row) => {

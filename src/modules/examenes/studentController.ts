@@ -17,6 +17,8 @@ import {
 } from "../../utils/examenScoring";
 import {
   findOverrideExamenIdForFormacion,
+  isRevisionHabilitadaAlumno,
+  puedeRevisarExamen,
   resolveIntentosMaximos,
 } from "../../utils/examenIntentosService";
 
@@ -70,7 +72,9 @@ const getIntentosAlumno = async (idAlumno: string, idExamen: string) => {
     .where("idExamen", "==", idExamen)
     .get();
 
-  if (snapshot.empty) return { ultimo: null as any, total: 0 };
+  if (snapshot.empty) {
+    return { ultimo: null as any, total: 0, algunoAprobado: false };
+  }
 
   const intentos = snapshot.docs
     .map((doc) => formatFirestoreDoc(doc))
@@ -80,7 +84,11 @@ const getIntentosAlumno = async (idAlumno: string, idExamen: string) => {
       return bDate - aDate;
     });
 
-  return { ultimo: intentos[0], total: snapshot.size };
+  return {
+    ultimo: intentos[0],
+    total: snapshot.size,
+    algunoAprobado: intentos.some((i: any) => i.aprobado === true),
+  };
 };
 
 export const getExamenEstadoFormacion = async (
@@ -115,14 +123,19 @@ export const getExamenEstadoFormacion = async (
     let ultimoIntento = null;
     let intentosUsados = 0;
     let intentosMaximos = getIntentosDefaultExamen(examenData);
+    let algunoAprobado = false;
+    let revisionHabilitadaAlumno = false;
     if (examenId) {
-      const [intentos, maxIntentos] = await Promise.all([
+      const [intentos, maxIntentos, revisionHabilitada] = await Promise.all([
         getIntentosAlumno(uid, examenId),
         resolveIntentosMaximos(uid, examenId, idFormacion, intentosMaximos),
+        isRevisionHabilitadaAlumno(uid, examenId),
       ]);
       ultimoIntento = intentos.ultimo;
       intentosUsados = intentos.total;
       intentosMaximos = maxIntentos;
+      algunoAprobado = intentos.algunoAprobado;
+      revisionHabilitadaAlumno = revisionHabilitada;
     }
 
     const formacionCompleta = progresoFormacion.completo;
@@ -184,6 +197,16 @@ export const getExamenEstadoFormacion = async (
           }
         : null,
       puedeRealizar,
+      puedeRevisar:
+        tieneIntentoPrevio &&
+        !pendienteCorreccion &&
+        puedeRevisarExamen({
+          examenData,
+          aprobado: algunoAprobado,
+          intentosUsados,
+          intentosMaximos,
+          revisionHabilitadaAlumno,
+        }),
       intentosUsados,
       intentosMaximos,
       intentosAgotados,

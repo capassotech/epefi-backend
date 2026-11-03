@@ -327,6 +327,8 @@ const ExamenBaseSchema = z
       .default(90),
     requiereCompletarCurso: z.boolean().default(true),
     publicacionManualDeNota: z.boolean().default(false).optional(),
+    /** Permite revisar el examen a quien aprobó o agotó sus intentos. Por defecto true. */
+    permitirRevision: z.boolean().optional(),
     /** Límite general de intentos por alumno (overrides individuales aparte). */
     intentosMaximos: z
       .number({ message: "Los intentos máximos deben ser un número" })

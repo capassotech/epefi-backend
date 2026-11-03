@@ -15,6 +15,7 @@ import {
   getAlumnosIntentosExamenAdmin,
   resetIntentosExamenAlumnoAdmin,
   setIntentosDefaultExamenAdmin,
+  setRevisionExamenAlumnoAdmin,
   upsertIntentosExamenAlumnoAdmin,
 } from "./intentosAdminController";
 import {
@@ -44,6 +45,10 @@ const UpsertIntentosBodySchema = z.object({
     .number({ message: "Los intentos máximos deben ser un número" })
     .int("Los intentos máximos deben ser un entero")
     .min(1, "El mínimo es 1 intento"),
+});
+
+const SetRevisionAlumnoBodySchema = z.object({
+  habilitada: z.boolean({ message: 'El campo "habilitada" debe ser un booleano' }),
 });
 
 const SetHabilitadoBodySchema = z.object({
@@ -83,6 +88,9 @@ const resetIntentosHandler = (req: Request, res: Response) =>
 const setIntentosDefaultHandler = (req: Request, res: Response) =>
   setIntentosDefaultExamenAdmin(req as AuthenticatedRequest, res);
 
+const setRevisionAlumnoHandler = (req: Request, res: Response) =>
+  setRevisionExamenAlumnoAdmin(req as AuthenticatedRequest, res);
+
 const setHabilitadoHandler = (req: Request, res: Response) =>
   setExamenHabilitado(req as AuthenticatedRequest, res);
 
@@ -107,6 +115,16 @@ router.patch(
   basicSanitization,
   validateBody(UpsertIntentosBodySchema),
   setIntentosDefaultHandler
+);
+
+// Admin: excepción manual de revisión por alumno
+router.put(
+  "/:id/revision-alumnos/:idAlumno",
+  authMiddleware,
+  validateParams(IntentosAlumnoParamSchema),
+  basicSanitization,
+  validateBody(SetRevisionAlumnoBodySchema),
+  setRevisionAlumnoHandler
 );
 
 // Admin: intentos personalizados por alumno

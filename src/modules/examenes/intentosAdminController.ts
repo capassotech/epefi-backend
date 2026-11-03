@@ -2,11 +2,15 @@ import { Response } from "express";
 import { firestore } from "../../config/firebase";
 import type { AuthenticatedRequest } from "../../middleware/authMiddleware";
 import { validateUser } from "../../utils/utils";
-import { getIntentosDefaultExamen } from "../../utils/examenScoring";
+import {
+  getIntentosDefaultExamen,
+  isRevisionPermitida,
+} from "../../utils/examenScoring";
 import {
   countIntentosUsados,
   deleteIntentosOverride,
   listAlumnosIntentosParaExamen,
+  setRevisionHabilitadaAlumno,
   upsertIntentosMaximosAlumno,
 } from "../../utils/examenIntentosService";
 
@@ -77,6 +81,7 @@ export const getAlumnosIntentosExamenAdmin = async (
         tituloFormacion,
       },
       intentosDefault,
+      permitirRevision: isRevisionPermitida(examen),
       alumnos,
     });
   } catch (error) {
@@ -121,6 +126,49 @@ export const setIntentosDefaultExamenAdmin = async (
     console.error("setIntentosDefaultExamenAdmin error:", error);
     return res.status(500).json({
       error: "Error al actualizar el límite general de intentos",
+    });
+  }
+};
+
+/** Excepción manual: habilita/deshabilita la revisión del examen para un alumno. */
+export const setRevisionExamenAlumnoAdmin = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    if (!(await requireAdmin(req, res))) return;
+
+    const { id, idAlumno } = req.params;
+    const habilitada = req.body?.habilitada;
+    if (typeof habilitada !== "boolean") {
+      return res.status(400).json({
+        error: 'El campo "habilitada" debe ser un booleano',
+      });
+    }
+
+    const examenDoc = await examenesCollection.doc(id).get();
+    if (!examenDoc.exists) {
+      return res.status(404).json({ error: "Examen no encontrado" });
+    }
+
+    await setRevisionHabilitadaAlumno({
+      idAlumno,
+      idExamen: id,
+      idFormacion: String(examenDoc.data()?.idFormacion || "").trim(),
+      habilitada,
+      updatedBy: req.user.uid,
+    });
+
+    return res.json({
+      message: habilitada
+        ? "Revisión habilitada para el alumno"
+        : "Se quitó la habilitación manual de revisión",
+      revisionHabilitada: habilitada,
+    });
+  } catch (error) {
+    console.error("setRevisionExamenAlumnoAdmin error:", error);
+    return res.status(500).json({
+      error: "Error al actualizar la revisión del alumno",
     });
   }
 };
