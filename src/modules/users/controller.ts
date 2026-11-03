@@ -94,7 +94,13 @@ export const getUsers = async (req: AuthenticatedRequest, res: Response) => {
         const nombre = (user?.nombre || "").toString().toLowerCase();
         const apellido = (user?.apellido || "").toString().toLowerCase();
         const email = (user?.email || "").toString().toLowerCase();
-        return nombre.includes(search) || apellido.includes(search) || email.includes(search);
+        const dni = (user?.dni || "").toString().toLowerCase();
+        return (
+          nombre.includes(search) ||
+          apellido.includes(search) ||
+          email.includes(search) ||
+          dni.includes(search)
+        );
       })
       .filter((user: any) => {
         if (!status) return true;
