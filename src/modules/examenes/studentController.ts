@@ -106,7 +106,7 @@ export const getExamenEstadoFormacion = async (
 
     if (!studentHasFormationAssigned(user.data.cursos_asignados, idFormacion)) {
       return res.status(403).json({
-        error: "No tenés asignada esta formación",
+        error: "No tenés asignado este curso",
       });
     }
 
@@ -252,7 +252,7 @@ export const getExamenParaAlumno = async (
     if (!studentHasFormationAssigned(user.data.cursos_asignados, idFormacion)) {
       return res.status(403).json({
         codigo: "FORMACION_NO_ASIGNADA",
-        error: "No tenés asignada esta formación",
+        error: "No tenés asignado este curso",
       });
     }
 
@@ -316,7 +316,7 @@ export const getExamenParaAlumno = async (
         return res.status(403).json({
           codigo: "MODULOS_INCOMPLETOS",
           error:
-            "Debés completar todos los módulos de la formación antes de realizar la evaluación",
+            "Debés completar todos los módulos del curso antes de realizar la evaluación",
           progresoFormacion: {
             totalModulos: progresoFormacion.totalModulos,
             modulosCompletados: progresoFormacion.modulosCompletados,

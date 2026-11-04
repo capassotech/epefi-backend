@@ -51,7 +51,7 @@ export const submitExamenRealizado = async (
       !studentHasFormationAssigned(userData.cursos_asignados, payload.idFormacion)
     ) {
       return res.status(403).json({
-        error: "No tenés asignada esta formación",
+        error: "No tenés asignado este curso",
       });
     }
 
@@ -63,7 +63,7 @@ export const submitExamenRealizado = async (
     const examenData = examenDoc.data()!;
     if (examenData.idFormacion !== payload.idFormacion) {
       return res.status(400).json({
-        error: "El examen no corresponde a la formación indicada",
+        error: "El examen no corresponde al curso indicado",
       });
     }
 
@@ -132,7 +132,7 @@ export const submitExamenRealizado = async (
       return res.status(403).json({
         codigo: "MODULOS_INCOMPLETOS",
         error:
-          "Debés completar todos los módulos de la formación antes de enviar la evaluación",
+          "Debés completar todos los módulos del curso antes de enviar la evaluación",
         progresoFormacion: {
           totalModulos: progresoFormacion.totalModulos,
           modulosCompletados: progresoFormacion.modulosCompletados,

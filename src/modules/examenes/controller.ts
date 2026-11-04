@@ -136,7 +136,7 @@ export const createExamen = async (req: AuthenticatedRequest, res: Response) => 
 
     const formacionExists = await verifyFormacionExists(examenData.idFormacion);
     if (!formacionExists) {
-      return res.status(404).json({ error: "Formación no encontrada" });
+      return res.status(404).json({ error: "Curso no encontrado" });
     }
 
     const now = new Date();
@@ -180,7 +180,7 @@ export const updateExamen = async (req: AuthenticatedRequest, res: Response) => 
 
     const formacionExists = await verifyFormacionExists(examenData.idFormacion);
     if (!formacionExists) {
-      return res.status(404).json({ error: "Formación no encontrada" });
+      return res.status(404).json({ error: "Curso no encontrado" });
     }
 
     const existingData = examenDoc.data();

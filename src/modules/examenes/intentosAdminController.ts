@@ -50,7 +50,7 @@ export const getAlumnosIntentosExamenAdmin = async (
     const idFormacion = String(examen.idFormacion || "").trim();
     if (!idFormacion) {
       return res.status(400).json({
-        error: "El examen no tiene formación asociada",
+        error: "El examen no tiene curso asociado",
       });
     }
 
@@ -192,7 +192,7 @@ export const upsertIntentosExamenAlumnoAdmin = async (
     const idFormacion = String(examen.idFormacion || "").trim();
     if (!idFormacion) {
       return res.status(400).json({
-        error: "El examen no tiene formación asociada",
+        error: "El examen no tiene curso asociado",
       });
     }
 
