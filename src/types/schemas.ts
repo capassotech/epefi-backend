@@ -327,6 +327,15 @@ const ExamenBaseSchema = z
       .default(90),
     requiereCompletarCurso: z.boolean().default(true),
     publicacionManualDeNota: z.boolean().default(false).optional(),
+    /** Permite revisar el examen a quien aprobó o agotó sus intentos. Por defecto true. */
+    permitirRevision: z.boolean().optional(),
+    /** Límite general de intentos por alumno (overrides individuales aparte). */
+    intentosMaximos: z
+      .number({ message: "Los intentos máximos deben ser un número" })
+      .int("Los intentos máximos deben ser un entero")
+      .min(1, "El mínimo es 1 intento")
+      .max(100, "El máximo es 100 intentos")
+      .optional(),
     notaMinima: z
       .number({ message: "La nota mínima debe ser un número" })
       .int("La nota mínima debe ser un número entero")

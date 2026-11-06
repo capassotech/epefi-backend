@@ -2,11 +2,15 @@ import { Response } from "express";
 import { firestore } from "../../config/firebase";
 import type { AuthenticatedRequest } from "../../middleware/authMiddleware";
 import { validateUser } from "../../utils/utils";
-import { MAX_INTENTOS_EXAMEN } from "../../utils/examenScoring";
+import {
+  getIntentosDefaultExamen,
+  isRevisionPermitida,
+} from "../../utils/examenScoring";
 import {
   countIntentosUsados,
   deleteIntentosOverride,
   listAlumnosIntentosParaExamen,
+  setRevisionHabilitadaAlumno,
   upsertIntentosMaximosAlumno,
 } from "../../utils/examenIntentosService";
 
@@ -46,13 +50,15 @@ export const getAlumnosIntentosExamenAdmin = async (
     const idFormacion = String(examen.idFormacion || "").trim();
     if (!idFormacion) {
       return res.status(400).json({
-        error: "El examen no tiene formación asociada",
+        error: "El examen no tiene curso asociado",
       });
     }
 
+    const intentosDefault = getIntentosDefaultExamen(examen);
     const alumnos = await listAlumnosIntentosParaExamen({
       idExamen: id,
       idFormacion,
+      intentosDefault,
       search,
     });
 
@@ -74,13 +80,95 @@ export const getAlumnosIntentosExamenAdmin = async (
         idFormacion,
         tituloFormacion,
       },
-      intentosDefault: MAX_INTENTOS_EXAMEN,
+      intentosDefault,
+      permitirRevision: isRevisionPermitida(examen),
       alumnos,
     });
   } catch (error) {
     console.error("getAlumnosIntentosExamenAdmin error:", error);
     return res.status(500).json({
       error: "Error al listar intentos de alumnos",
+    });
+  }
+};
+
+/** Límite general de intentos del examen: aplica a todos los alumnos sin override. */
+export const setIntentosDefaultExamenAdmin = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    if (!(await requireAdmin(req, res))) return;
+
+    const { id } = req.params;
+    const intentosMaximos = Math.floor(Number(req.body?.intentosMaximos));
+    if (!Number.isFinite(intentosMaximos) || intentosMaximos < 1) {
+      return res.status(400).json({
+        error: "Los intentos máximos deben ser un entero mayor o igual a 1",
+      });
+    }
+
+    const examenDoc = await examenesCollection.doc(id).get();
+    if (!examenDoc.exists) {
+      return res.status(404).json({ error: "Examen no encontrado" });
+    }
+
+    await examenesCollection.doc(id).update({
+      intentosMaximos,
+      fechaActualizacion: new Date(),
+    });
+
+    return res.json({
+      message: "Límite general de intentos actualizado",
+      intentosDefault: intentosMaximos,
+    });
+  } catch (error) {
+    console.error("setIntentosDefaultExamenAdmin error:", error);
+    return res.status(500).json({
+      error: "Error al actualizar el límite general de intentos",
+    });
+  }
+};
+
+/** Excepción manual: habilita/deshabilita la revisión del examen para un alumno. */
+export const setRevisionExamenAlumnoAdmin = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    if (!(await requireAdmin(req, res))) return;
+
+    const { id, idAlumno } = req.params;
+    const habilitada = req.body?.habilitada;
+    if (typeof habilitada !== "boolean") {
+      return res.status(400).json({
+        error: 'El campo "habilitada" debe ser un booleano',
+      });
+    }
+
+    const examenDoc = await examenesCollection.doc(id).get();
+    if (!examenDoc.exists) {
+      return res.status(404).json({ error: "Examen no encontrado" });
+    }
+
+    await setRevisionHabilitadaAlumno({
+      idAlumno,
+      idExamen: id,
+      idFormacion: String(examenDoc.data()?.idFormacion || "").trim(),
+      habilitada,
+      updatedBy: req.user.uid,
+    });
+
+    return res.json({
+      message: habilitada
+        ? "Revisión habilitada para el alumno"
+        : "Se quitó la habilitación manual de revisión",
+      revisionHabilitada: habilitada,
+    });
+  } catch (error) {
+    console.error("setRevisionExamenAlumnoAdmin error:", error);
+    return res.status(500).json({
+      error: "Error al actualizar la revisión del alumno",
     });
   }
 };
@@ -104,7 +192,7 @@ export const upsertIntentosExamenAlumnoAdmin = async (
     const idFormacion = String(examen.idFormacion || "").trim();
     if (!idFormacion) {
       return res.status(400).json({
-        error: "El examen no tiene formación asociada",
+        error: "El examen no tiene curso asociado",
       });
     }
 
@@ -141,10 +229,11 @@ export const resetIntentosExamenAlumnoAdmin = async (
       return res.status(404).json({ error: "Examen no encontrado" });
     }
 
+    const intentosDefault = getIntentosDefaultExamen(examenDoc.data());
     const usados = await countIntentosUsados(idAlumno, id);
-    if (usados > MAX_INTENTOS_EXAMEN) {
+    if (usados > intentosDefault) {
       return res.status(400).json({
-        error: `No se puede restablecer al default (${MAX_INTENTOS_EXAMEN}): el alumno ya usó ${usados} intentos`,
+        error: `No se puede restablecer al default (${intentosDefault}): el alumno ya usó ${usados} intentos`,
       });
     }
 
@@ -152,7 +241,7 @@ export const resetIntentosExamenAlumnoAdmin = async (
 
     return res.json({
       message: "Se restableció el límite por defecto",
-      intentosDefault: MAX_INTENTOS_EXAMEN,
+      intentosDefault,
     });
   } catch (error) {
     console.error("resetIntentosExamenAlumnoAdmin error:", error);

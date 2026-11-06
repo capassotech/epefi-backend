@@ -13,13 +13,19 @@ import {
   calculateExamenGrade,
   esPreguntaDesarrollo,
   ExamenPregunta,
+  getIntentosDefaultExamen,
   isExamenHabilitado,
   MENSAJE_EXAMEN_DESHABILITADO,
   mensajeIntentosAgotados,
   normalizePreguntasPuntos,
   resolveEstadoExamenRealizado,
 } from "../../utils/examenScoring";
-import { resolveIntentosMaximos } from "../../utils/examenIntentosService";
+import {
+  isRevisionHabilitadaAlumno,
+  puedeRevisarExamen,
+  resolveIntentosMaximos,
+  resolvePuedeRevisarExamen,
+} from "../../utils/examenIntentosService";
 import { buildExamenRealizadoDetalle } from "../../utils/examenesRealizadosService";
 
 const examenesCollection = firestore.collection("examenes");
@@ -45,7 +51,7 @@ export const submitExamenRealizado = async (
       !studentHasFormationAssigned(userData.cursos_asignados, payload.idFormacion)
     ) {
       return res.status(403).json({
-        error: "No tenés asignada esta formación",
+        error: "No tenés asignado este curso",
       });
     }
 
@@ -57,7 +63,7 @@ export const submitExamenRealizado = async (
     const examenData = examenDoc.data()!;
     if (examenData.idFormacion !== payload.idFormacion) {
       return res.status(400).json({
-        error: "El examen no corresponde a la formación indicada",
+        error: "El examen no corresponde al curso indicado",
       });
     }
 
@@ -91,7 +97,8 @@ export const submitExamenRealizado = async (
     const intentosMaximos = await resolveIntentosMaximos(
       uid,
       payload.idExamen,
-      payload.idFormacion
+      payload.idFormacion,
+      getIntentosDefaultExamen(examenData)
     );
     const esReintentoNoAprobado =
       ultimoIntento !== undefined && ultimoIntento.aprobado !== true;
@@ -125,7 +132,7 @@ export const submitExamenRealizado = async (
       return res.status(403).json({
         codigo: "MODULOS_INCOMPLETOS",
         error:
-          "Debés completar todos los módulos de la formación antes de enviar la evaluación",
+          "Debés completar todos los módulos del curso antes de enviar la evaluación",
         progresoFormacion: {
           totalModulos: progresoFormacion.totalModulos,
           modulosCompletados: progresoFormacion.modulosCompletados,
@@ -139,7 +146,7 @@ export const submitExamenRealizado = async (
     const esCierreForzado =
       payload.motivoCierre === "tiempo" || payload.motivoCierre === "abandono";
 
-    // Completar respuestas faltantes en cierre por tiempo/abandono
+    // Completar respuestas faltantes: las preguntas sin responder cuentan como incorrectas
     const respuestasPorPregunta = new Map(
       payload.respuestas.map((r) => [
         r.idPregunta,
@@ -163,34 +170,6 @@ export const submitExamenRealizado = async (
         respuestasSeleccionadas: raw?.respuestasSeleccionadas ?? [],
       };
     });
-
-    if (!esCierreForzado) {
-      for (const pregunta of preguntas) {
-        const respuesta = respuestasNormalizadas.find(
-          (r) => r.idPregunta === pregunta.id
-        );
-        if (!respuesta) {
-          return res.status(400).json({
-            error: "Debés responder todas las preguntas del examen",
-          });
-        }
-
-        if (esPreguntaDesarrollo(pregunta)) {
-          if (!respuesta.respuestaDesarrollo?.trim()) {
-            return res.status(400).json({
-              error: "Debés responder todas las preguntas del examen",
-            });
-          }
-          continue;
-        }
-
-        if (respuesta.respuestasSeleccionadas.length === 0) {
-          return res.status(400).json({
-            error: "Debés responder todas las preguntas del examen",
-          });
-        }
-      }
-    }
 
     for (const respuesta of respuestasNormalizadas) {
       const pregunta = preguntas.find((p) => p.id === respuesta.idPregunta);
@@ -219,14 +198,9 @@ export const submitExamenRealizado = async (
         const correctas = (pregunta.respuestas || []).filter(
           (r) => r.esCorrecta
         ).length;
-        if (correctas === 1 && respuesta.respuestasSeleccionadas.length !== 1) {
+        if (correctas === 1 && respuesta.respuestasSeleccionadas.length > 1) {
           return res.status(400).json({
             error: `La pregunta ${respuesta.idPregunta} admite una sola respuesta`,
-          });
-        }
-        if (correctas > 1 && respuesta.respuestasSeleccionadas.length === 0) {
-          return res.status(400).json({
-            error: `La pregunta ${respuesta.idPregunta} requiere al menos una respuesta`,
           });
         }
       }
@@ -250,9 +224,10 @@ export const submitExamenRealizado = async (
       preguntas,
       respuestasNormalizadas
     );
-    // Abandono y tiempo agotado no generan corrección manual aunque haya preguntas de desarrollo.
+    // Solo el abandono cierra sin corrección manual: el tiempo agotado sigue el mismo camino que un
+    // envío normal, para que el docente corrija el desarrollo y se respete la publicación manual.
     const publicacionManual = examenData.publicacionManualDeNota === true;
-    const estado = esCierreForzado
+    const estado = payload.motivoCierre === "abandono"
       ? "completado"
       : publicacionManual
         ? "pendiente_correccion"
@@ -287,9 +262,25 @@ export const submitExamenRealizado = async (
 
     const puedeReintentar =
       estado === "completado" && !calificacion.aprobado && !ahoraAgotoIntentos;
+    const puedeRevisar =
+      estado === "completado" &&
+      puedeRevisarExamen({
+        examenData,
+        aprobado: calificacion.aprobado,
+        intentosUsados: intentosUsados + 1,
+        intentosMaximos,
+        revisionHabilitadaAlumno: await isRevisionHabilitadaAlumno(
+          uid,
+          payload.idExamen
+        ),
+      });
 
     const mensajePorMotivo =
-      payload.motivoCierre === "tiempo"
+      payload.motivoCierre === "tiempo" && estado === "pendiente_correccion"
+        ? publicacionManual
+          ? "Se agotó el tiempo. Tu evaluación fue enviada y la nota será publicada por el administrador en las próximas horas."
+          : "Se agotó el tiempo. Tu evaluación fue enviada y quedó pendiente de corrección."
+        : payload.motivoCierre === "tiempo"
         ? ahoraAgotoIntentos
           ? "Se agotó el tiempo. El intento quedó registrado y alcanzaste el máximo de intentos."
           : "Se agotó el tiempo. El intento quedó registrado."
@@ -322,6 +313,7 @@ export const submitExamenRealizado = async (
         intentosUsados: intentoNumero,
         intentosMaximos,
         puedeReintentar,
+        puedeRevisar,
         publicacionManualDeNota: publicacionManual,
       },
     });
@@ -355,6 +347,20 @@ export const getMiExamenRealizadoDetalle = async (
         codigo: "DETALLE_PENDIENTE_CORRECCION",
         error:
           "El detalle del examen estará disponible una vez que el docente lo corrija",
+      });
+    }
+
+    const examenDoc = await examenesCollection.doc(detalle.idExamen).get();
+    const puedeRevisar = await resolvePuedeRevisarExamen(
+      uid,
+      detalle.idExamen,
+      examenDoc.data()
+    );
+    if (!puedeRevisar) {
+      return res.status(403).json({
+        codigo: "REVISION_NO_DISPONIBLE",
+        error:
+          "La revisión del examen estará disponible cuando apruebes o uses todos tus intentos",
       });
     }
 
@@ -394,7 +400,13 @@ export const getMisIntentosExamen = async (
       });
 
     const ultimo = intentos[0] ?? null;
-    const intentosMaximos = await resolveIntentosMaximos(uid, idExamen);
+    const examenDoc = await examenesCollection.doc(idExamen).get();
+    const intentosMaximos = await resolveIntentosMaximos(
+      uid,
+      idExamen,
+      undefined,
+      getIntentosDefaultExamen(examenDoc.data())
+    );
 
     return res.json({
       totalIntentos: intentos.length,

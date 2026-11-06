@@ -5,11 +5,29 @@ export const NOTA_MINIMA_APROBACION = 7;
 
 export const PUNTOS_TOTAL_EXAMEN = 100;
 
-export const MAX_INTENTOS_EXAMEN = 3;
+/** Fallback para exámenes que no tienen `intentosMaximos` configurado. */
+export const MAX_INTENTOS_EXAMEN = 1;
+
+/** Valor inicial sugerido al crear un examen nuevo. */
+export const INTENTOS_EXAMEN_NUEVO = 1;
+
+/** Límite general de intentos del examen (aplica a todos los alumnos sin override). */
+export const getIntentosDefaultExamen = (
+  data?: { intentosMaximos?: unknown } | null
+): number => {
+  const value = Number(data?.intentosMaximos);
+  if (!Number.isFinite(value) || value < 1) return MAX_INTENTOS_EXAMEN;
+  return Math.floor(value);
+};
 
 export const isExamenHabilitado = (
   data?: { habilitado?: boolean } | null
 ): boolean => data?.habilitado !== false;
+
+/** Switch general de revisión del examen. Si falta, se considera permitida. */
+export const isRevisionPermitida = (
+  data?: { permitirRevision?: boolean } | null
+): boolean => data?.permitirRevision !== false;
 
 export const MENSAJE_EXAMEN_DESHABILITADO =
   "Esta evaluación aún no está disponible. Las evaluaciones se habilitarán según el plan de estudios. Si tenés alguna consulta, comunicate con tu profesor.";

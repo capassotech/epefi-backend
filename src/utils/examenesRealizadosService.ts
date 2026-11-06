@@ -30,7 +30,13 @@ export type ExamenesRealizadosFilters = {
   searchAlumno?: string;
   aprobado?: boolean;
   estado?: "completado" | "pendiente_correccion";
+  /** Columna por la que ordenar; sin valor, los más recientes primero */
+  sortBy?: ExamenesRealizadosSortBy;
+  sortDirection?: "asc" | "desc";
 };
+
+export const EXAMENES_REALIZADOS_SORT_FIELDS = ["alumno", "curso", "examen", "nota", "fecha"] as const;
+export type ExamenesRealizadosSortBy = (typeof EXAMENES_REALIZADOS_SORT_FIELDS)[number];
 
 export type ExamenRealizadoEnriched = {
   id: string;
@@ -130,11 +136,17 @@ export const fetchExamenesRealizadosEnriched = async (
     cursoDocs.filter((d) => d.exists).map((d) => [d.id, d.data()])
   );
 
+  // El buscador encuentra por alumno (nombre, email, DNI), curso o examen
   if (filters.searchAlumno) {
-    records = records.filter((r) => {
-      const userData = usersMap.get(r.idAlumno);
-      return matchesAlumnoSearch(userData, filters.searchAlumno!);
-    });
+    const term = filters.searchAlumno.toLowerCase();
+    const matchesTitle = (data: Record<string, unknown> | undefined) =>
+      (data?.titulo || "").toString().toLowerCase().includes(term);
+    records = records.filter(
+      (r) =>
+        matchesAlumnoSearch(usersMap.get(r.idAlumno), filters.searchAlumno!) ||
+        matchesTitle(cursosMap.get(r.idFormacion)) ||
+        matchesTitle(examenesMap.get(r.idExamen))
+    );
   }
 
   const enriched: ExamenRealizadoEnriched[] = records.map((record) => {
@@ -148,7 +160,7 @@ export const fetchExamenesRealizadosEnriched = async (
       nombreAlumno: getAlumnoNombre(userData),
       emailAlumno: (userData?.email || "").toString(),
       idFormacion: record.idFormacion,
-      tituloFormacion: (cursoData?.titulo || "Formación sin título").toString(),
+      tituloFormacion: (cursoData?.titulo || "Curso sin título").toString(),
       idExamen: record.idExamen,
       tituloExamen: (examenData?.titulo || "Examen sin título").toString(),
       nota: Number(record.nota ?? 0),
@@ -166,11 +178,20 @@ export const fetchExamenesRealizadosEnriched = async (
     };
   });
 
-  enriched.sort((a, b) => {
-    const aTime = new Date(a.fechaRealizacion || 0).getTime();
-    const bTime = new Date(b.fechaRealizacion || 0).getTime();
-    return bTime - aTime;
-  });
+  const time = (r: ExamenRealizadoEnriched) => new Date(r.fechaRealizacion || 0).getTime();
+  const byText = (a: string, b: string) => a.localeCompare(b, "es", { sensitivity: "base" });
+  const compare: Record<ExamenesRealizadosSortBy, (a: ExamenRealizadoEnriched, b: ExamenRealizadoEnriched) => number> = {
+    alumno: (a, b) => byText(a.nombreAlumno, b.nombreAlumno),
+    curso: (a, b) => byText(a.tituloFormacion, b.tituloFormacion),
+    examen: (a, b) => byText(a.tituloExamen, b.tituloExamen),
+    nota: (a, b) => a.nota - b.nota,
+    fecha: (a, b) => time(a) - time(b),
+  };
+  const sortBy = filters.sortBy ?? "fecha";
+  const direction = (filters.sortDirection ?? (filters.sortBy ? "asc" : "desc")) === "desc" ? -1 : 1;
+
+  // Empates: los más recientes primero, para un orden estable entre páginas
+  enriched.sort((a, b) => direction * compare[sortBy](a, b) || time(b) - time(a));
 
   return enriched;
 };
@@ -675,7 +696,7 @@ export const buildExamenRealizadoDetalle = async (id: string) => {
     emailAlumno: userData?.email || "",
     dniAlumno: userData?.dni || "",
     idFormacion: record.idFormacion,
-    tituloFormacion: cursoData?.titulo || "Formación sin título",
+    tituloFormacion: cursoData?.titulo || "Curso sin título",
     idExamen: record.idExamen,
     tituloExamen: examenData?.titulo || "Examen sin título",
     nota,
@@ -725,6 +746,12 @@ export const parseExamenesRealizadosFilters = (
       ? (estadoParam as "pendiente_correccion" | "completado")
       : undefined;
 
+  const sortByParam = (query.sortBy as string | undefined)?.trim().toLowerCase();
+  const sortBy = EXAMENES_REALIZADOS_SORT_FIELDS.find((field) => field === sortByParam);
+  const sortDirectionParam = (query.sortDirection as string | undefined)?.trim().toLowerCase();
+  const sortDirection =
+    sortDirectionParam === "asc" || sortDirectionParam === "desc" ? sortDirectionParam : undefined;
+
   return {
     idFormacion: idFormacion || undefined,
     idExamen: idExamen || undefined,
@@ -732,6 +759,8 @@ export const parseExamenesRealizadosFilters = (
     searchAlumno: searchAlumno || undefined,
     aprobado,
     estado,
+    sortBy,
+    sortDirection,
   };
 };
 
@@ -739,7 +768,7 @@ export const recordsToCsv = (records: ExamenRealizadoEnriched[]): string => {
   const headers = [
     "Alumno",
     "Email",
-    "Formación",
+    "Curso",
     "Examen",
     "Nota",
     "Porcentaje aciertos",
