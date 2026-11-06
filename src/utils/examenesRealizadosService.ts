@@ -1,5 +1,6 @@
 import { firestore } from "../config/firebase";
 import { formatFirestoreDoc } from "./utils";
+import { cached, invalidateCached } from "./shortCache";
 import {
   computeGradeFromPuntosObtenidos,
   esPreguntaDesarrollo,
@@ -91,8 +92,27 @@ const CAMPOS_LISTADO = [
   "fechaRealizacion",
 ];
 
-export const fetchExamenesRealizadosEnriched = async (
+const LISTADO_CACHE_PREFIX = "realizados:";
+const LISTADO_TTL_MS = 10_000;
+
+/**
+ * Cada página del admin pide el listado completo y recorta. Durante un examen, varios
+ * administradores comparten la misma lectura: un envío nuevo tarda hasta 10 s en aparecer.
+ * El resultado es compartido: quien lo recibe no debe modificarlo.
+ */
+export const fetchExamenesRealizadosEnriched = (
   filters: ExamenesRealizadosFilters = {}
+): Promise<ExamenRealizadoEnriched[]> =>
+  cached(`${LISTADO_CACHE_PREFIX}${JSON.stringify(filters)}`, LISTADO_TTL_MS, () =>
+    loadExamenesRealizadosEnriched(filters)
+  );
+
+/** Después de corregir: el intento tiene que cambiar de lista al instante. */
+export const invalidateExamenesRealizadosListado = (): void =>
+  invalidateCached(LISTADO_CACHE_PREFIX);
+
+const loadExamenesRealizadosEnriched = async (
+  filters: ExamenesRealizadosFilters
 ): Promise<ExamenRealizadoEnriched[]> => {
   let query: FirebaseFirestore.Query = examenesRealizadosCollection;
 

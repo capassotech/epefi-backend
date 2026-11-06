@@ -23,6 +23,9 @@ export interface UserData {
  * Valida si el usuario tiene permisos de administrador
  * CORREGIDO: Cambiado de "usuarios" a "users" y de "rol" a "role.admin"
  */
+const ULTIMO_ACCESO_INTERVALO_MS = 5 * 60 * 1000;
+const ultimoAccesoGuardado = new Map<string, number>();
+
 export const validateUser = async (
   req: AuthenticatedRequest
 ): Promise<boolean> => {
@@ -57,10 +60,16 @@ export const validateUser = async (
       return false;
     }
 
-    // Actualizar fecha de último acceso
-    await usersCollection.doc(req.user.uid).update({
-      fechaUltimoAcceso: new Date(),
-    });
+    // Actualizar fecha de último acceso, como mucho cada 5 minutos y sin esperar: el panel hace
+    // muchos pedidos a la vez, y una falla acá no puede dejar al administrador sin autorización
+    const ahora = Date.now();
+    if (ahora - (ultimoAccesoGuardado.get(req.user.uid) ?? 0) > ULTIMO_ACCESO_INTERVALO_MS) {
+      ultimoAccesoGuardado.set(req.user.uid, ahora);
+      usersCollection
+        .doc(req.user.uid)
+        .update({ fechaUltimoAcceso: new Date() })
+        .catch((error) => console.error("validateUser: no se pudo guardar el último acceso:", error));
+    }
 
     return true;
   } catch (error) {

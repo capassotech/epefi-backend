@@ -21,3 +21,5 @@ export const invalidateCached = (prefix: string): void => {
     if (key.startsWith(prefix)) entries.delete(key);
   }
 };
+
+export const USUARIOS_LISTADO_CACHE_KEY = "usuarios:listado";

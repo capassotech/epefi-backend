@@ -20,4 +20,5 @@ Las reglas generales están en `../CLAUDE.md`. Ojo con los mensajes de error: se
 - El envío es idempotente: con `idEnvio`, reenviar devuelve el intento ya guardado (id `uid__idExamen__idEnvio`).
 - La respuesta del envío no puede incluir las preguntas, porque llevan `esCorrecta`.
 - Los listados de admin usan `select` (`CAMPOS_LISTADO`): si el listado necesita un campo nuevo, agregarlo ahí.
+- Los listados de admin también se comparten unos segundos: intentos 10 s (`invalidateExamenesRealizadosListado` al corregir) y usuarios 15 s (lo limpia `index.ts` en cualquier escritura de usuarios, cursos o materias). No modificar los resultados de esas cachés.
 - El límite de intentos de login es por cuenta, no por IP.

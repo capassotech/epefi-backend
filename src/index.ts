@@ -12,12 +12,22 @@ import materiasRoutes from "./modules/materia/routes";
 import modulosRoutes from "./modules/modulos/routes";
 import examenesRoutes from "./modules/examenes/routes";
 import examenesRealizadosRoutes from "./modules/examenes-realizados/routes";
+import { invalidateCached, USUARIOS_LISTADO_CACHE_KEY } from "./utils/shortCache";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json({ limit: "400kb" }));
+
+// Un cambio en estos módulos puede tocar usuarios: el listado del admin tiene que verlo al instante
+const limpiarListadoUsuarios: express.RequestHandler = (req, res, next) => {
+  if (req.method !== "GET") {
+    res.on("finish", () => invalidateCached(USUARIOS_LISTADO_CACHE_KEY));
+  }
+  next();
+};
+app.use(["/api/usuarios", "/api/cursos", "/api/materias"], limpiarListadoUsuarios);
 
 app.use("/api/auth", authRoutes);
 app.use("/api/cursos", cursosRoutes);
