@@ -77,6 +77,20 @@ const matchesAlumnoSearch = (
   return nombre.includes(term) || email.includes(term) || dni.includes(term);
 };
 
+const CAMPOS_LISTADO = [
+  "idAlumno",
+  "idExamen",
+  "idFormacion",
+  "nota",
+  "porcentajeAciertos",
+  "respuestasCorrectas",
+  "totalPreguntas",
+  "aprobado",
+  "estado",
+  "intentoNumero",
+  "fechaRealizacion",
+];
+
 export const fetchExamenesRealizadosEnriched = async (
   filters: ExamenesRealizadosFilters = {}
 ): Promise<ExamenRealizadoEnriched[]> => {
@@ -90,7 +104,9 @@ export const fetchExamenesRealizadosEnriched = async (
     query = query.where("idAlumno", "==", filters.idAlumno);
   }
 
-  const snapshot = await query.get();
+  // Solo los campos del listado: las preguntas y respuestas de cada intento pesan mucho y,
+  // con cientos de intentos, cargarlas en cada pedido puede dejar al servidor sin memoria
+  const snapshot = await query.select(...CAMPOS_LISTADO).get();
   let records = snapshot.docs.map((doc) => formatFirestoreDoc(doc));
 
   if (filters.idExamen && filters.idFormacion) {

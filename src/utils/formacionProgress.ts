@@ -1,4 +1,5 @@
 import { firestore } from "../config/firebase";
+import { cached } from "./shortCache";
 
 const cursosCollection = firestore.collection("cursos");
 const materiasCollection = firestore.collection("materias");
@@ -122,49 +123,69 @@ export const getFormationModuleIds = async (
   return [...moduleIds];
 };
 
-const resolveModuleEnabled = async (
-  moduleId: string,
-  materiaId: string,
-  overrides: Record<string, boolean>
-): Promise<boolean> => {
-  if (moduleId in overrides) {
-    return overrides[moduleId] === true;
-  }
+interface CursoEstructura {
+  materias: Array<{ id: string; modulos: string[]; estados: Map<string, boolean> }>;
+  modulos: Map<string, Record<string, unknown>>;
+}
 
-  const estadoDoc = await materiasCollection
-    .doc(materiaId)
-    .collection("modulos_estado")
-    .doc(moduleId)
-    .get();
+const ESTRUCTURA_TTL_MS = 30_000;
 
-  if (estadoDoc.exists) {
-    return estadoDoc.data()?.enabledGlobal === true;
-  }
+/**
+ * Materias, módulos y estado global de un curso. Es igual para todos los alumnos, así que se
+ * comparte durante unos segundos: si no, 300 alumnos repiten las mismas lecturas por cada pedido.
+ */
+const getCursoEstructura = (idFormacion: string): Promise<CursoEstructura> =>
+  cached(`curso-estructura:${idFormacion}`, ESTRUCTURA_TTL_MS, async () => {
+    const cursoDoc = await cursosCollection.doc(idFormacion).get();
+    const materiaIds: string[] = cursoDoc.data()?.materias || [];
 
-  const materiaDoc = await materiasCollection.doc(materiaId).get();
-  const modulos: string[] = materiaDoc.data()?.modulos || [];
-  return modulos[0] === moduleId;
-};
+    const leidas = await Promise.all(
+      materiaIds.map(async (id) => {
+        const materiaRef = materiasCollection.doc(id);
+        const [materiaDoc, estadosSnap] = await Promise.all([
+          materiaRef.get(),
+          materiaRef.collection("modulos_estado").get(),
+        ]);
+        if (!materiaDoc.exists) return null;
+        const modulos: string[] = materiaDoc.data()?.modulos || [];
+        const estados = new Map(
+          estadosSnap.docs.map((doc) => [doc.id, doc.data()?.enabledGlobal === true])
+        );
+        return { id, modulos, estados };
+      })
+    );
+    const materias = leidas.filter((m): m is NonNullable<typeof m> => m !== null);
+
+    const moduleIds = [...new Set(materias.flatMap((m) => m.modulos))];
+    const moduleDocs = moduleIds.length
+      ? await firestore.getAll(...moduleIds.map((id) => modulosCollection.doc(id)))
+      : [];
+    const modulos = new Map(
+      moduleDocs
+        .filter((doc) => doc.exists)
+        .map((doc) => [doc.id, doc.data() as Record<string, unknown>])
+    );
+
+    return { materias, modulos };
+  });
 
 export const getEnabledFormationModules = async (
   idFormacion: string,
   overrides: Record<string, boolean> = {}
 ): Promise<Array<{ moduleId: string; materiaId: string }>> => {
-  const cursoDoc = await cursosCollection.doc(idFormacion).get();
-  if (!cursoDoc.exists) return [];
-
-  const materiaIds: string[] = cursoDoc.data()?.materias || [];
+  const { materias } = await getCursoEstructura(idFormacion);
   const enabledModules: Array<{ moduleId: string; materiaId: string }> = [];
 
-  for (const materiaId of materiaIds) {
-    const materiaDoc = await materiasCollection.doc(materiaId).get();
-    if (!materiaDoc.exists) continue;
-
-    const modulos: string[] = materiaDoc.data()?.modulos || [];
-    for (const moduleId of modulos) {
-      const enabled = await resolveModuleEnabled(moduleId, materiaId, overrides);
+  for (const materia of materias) {
+    for (const moduleId of materia.modulos) {
+      const enabled =
+        moduleId in overrides
+          ? overrides[moduleId] === true
+          : materia.estados.has(moduleId)
+            ? materia.estados.get(moduleId) === true
+            : materia.modulos[0] === moduleId;
       if (enabled) {
-        enabledModules.push({ moduleId, materiaId });
+        enabledModules.push({ moduleId, materiaId: materia.id });
       }
     }
   }
@@ -191,27 +212,21 @@ export const getFormationProgress = async (
     };
   }
 
-  const moduleDocs = await Promise.all(
-    enabledModules.map(({ moduleId }) =>
-      modulosCollection.doc(moduleId).get()
-    )
-  );
+  const { modulos } = await getCursoEstructura(idFormacion);
 
   const pendientes: string[] = [];
   let completados = 0;
   let totalModulos = 0;
 
-  for (let i = 0; i < enabledModules.length; i++) {
-    const { moduleId } = enabledModules[i];
-    const moduleDoc = moduleDocs[i];
+  for (const { moduleId } of enabledModules) {
+    const moduleData = modulos.get(moduleId);
 
     // Referencia en materia sin documento en Firestore: no bloquear la formación
-    if (!moduleDoc.exists) {
+    if (!moduleData) {
       continue;
     }
 
     totalModulos++;
-    const moduleData = moduleDoc.data() as Record<string, unknown>;
     const moduleProgreso = progreso[moduleId];
 
     if (isModuleContentCompleted(moduleId, moduleData, moduleProgreso)) {
@@ -257,21 +272,15 @@ export const getFormationContentProgress = async (
     };
   }
 
-  const moduleDocs = await Promise.all(
-    enabledModules.map(({ moduleId }) =>
-      modulosCollection.doc(moduleId).get()
-    )
-  );
+  const { modulos } = await getCursoEstructura(idFormacion);
 
   let completed = 0;
   let total = 0;
 
-  for (let i = 0; i < enabledModules.length; i++) {
-    const { moduleId } = enabledModules[i];
-    const moduleDoc = moduleDocs[i];
-    if (!moduleDoc.exists) continue;
+  for (const { moduleId } of enabledModules) {
+    const moduleData = modulos.get(moduleId);
+    if (!moduleData) continue;
 
-    const moduleData = moduleDoc.data() as Record<string, unknown>;
     const moduleProgreso = progreso[moduleId];
     const contentKeys = getModuleContentKeys(moduleId, moduleData);
 

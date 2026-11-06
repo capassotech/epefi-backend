@@ -418,6 +418,12 @@ export const SubmitExamenSchema = z.object({
   idFormacion: z.string().min(1, "El idFormacion es obligatorio").trim(),
   /** tiempo = se agotó el contador; abandono = cerró a mitad; envio = finalizó normal. */
   motivoCierre: z.enum(["tiempo", "abandono", "envio"]).optional(),
+  /** Identifica el envío: reintentarlo devuelve el resultado ya guardado en vez de crear otro intento. */
+  idEnvio: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9-]{8,64}$/, "El idEnvio no es válido")
+    .optional(),
   respuestas: z
     .array(
       z.object({

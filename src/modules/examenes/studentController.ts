@@ -16,13 +16,16 @@ import {
   shuffleArray,
 } from "../../utils/examenScoring";
 import {
+  getExamenDocCached,
+  getExamenesDeFormacionCached,
+} from "../../utils/examenCache";
+import {
   findOverrideExamenIdForFormacion,
   isRevisionHabilitadaAlumno,
   puedeRevisarExamen,
   resolveIntentosMaximos,
 } from "../../utils/examenIntentosService";
 
-const examenesCollection = firestore.collection("examenes");
 const examenesRealizadosCollection = firestore.collection("examenes_realizados");
 const usersCollection = firestore.collection("users");
 
@@ -36,13 +39,9 @@ const getExamenDocByFormacion = async (
   idFormacion: string,
   idAlumno?: string
 ) => {
-  const snapshot = await examenesCollection
-    .where("idFormacion", "==", idFormacion)
-    .get();
+  const docs = await getExamenesDeFormacionCached(idFormacion);
 
-  if (snapshot.empty) return null;
-
-  const docs = snapshot.docs;
+  if (docs.length === 0) return null;
   if (docs.length === 1) return docs[0];
 
   // Si el alumno tiene intentos personalizados en un examen de esta formación,
@@ -241,7 +240,7 @@ export const getExamenParaAlumno = async (
       return res.status(404).json({ error: "Usuario no encontrado" });
     }
 
-    const examenDoc = await examenesCollection.doc(idExamen).get();
+    const examenDoc = await getExamenDocCached(idExamen);
     if (!examenDoc.exists) {
       return res.status(404).json({ error: "Examen no encontrado" });
     }

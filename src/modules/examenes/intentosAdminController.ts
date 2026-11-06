@@ -1,3 +1,4 @@
+import { invalidateExamenCache } from "../../utils/examenCache";
 import { Response } from "express";
 import { firestore } from "../../config/firebase";
 import type { AuthenticatedRequest } from "../../middleware/authMiddleware";
@@ -117,6 +118,7 @@ export const setIntentosDefaultExamenAdmin = async (
       intentosMaximos,
       fechaActualizacion: new Date(),
     });
+    invalidateExamenCache();
 
     return res.json({
       message: "Límite general de intentos actualizado",

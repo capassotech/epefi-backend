@@ -263,6 +263,7 @@ export const listAlumnosIntentosParaExamen = async (params: {
         .get(),
       examenesRealizadosCollection
         .where("idExamen", "==", params.idExamen)
+        .select("idAlumno")
         .get(),
       revisionUsuarioCollection
         .where("idExamen", "==", params.idExamen)

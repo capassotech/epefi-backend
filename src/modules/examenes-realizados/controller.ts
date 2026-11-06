@@ -27,10 +27,94 @@ import {
   resolvePuedeRevisarExamen,
 } from "../../utils/examenIntentosService";
 import { buildExamenRealizadoDetalle } from "../../utils/examenesRealizadosService";
+import { getExamenDocCached } from "../../utils/examenCache";
 
 const examenesCollection = firestore.collection("examenes");
 const examenesRealizadosCollection = firestore.collection("examenes_realizados");
 const usersCollection = firestore.collection("users");
+
+/** Código de Firestore cuando el documento ya existe. */
+const FIRESTORE_ALREADY_EXISTS = 6;
+
+/**
+ * Arma la respuesta del envío. Es la misma para un envío nuevo y para un reintento, y no incluye
+ * las preguntas: llevan las respuestas correctas y el alumno todavía puede tener intentos.
+ */
+const responderEnvio = async (params: {
+  res: Response;
+  status: number;
+  id: string;
+  registro: Record<string, any>;
+  fechaRealizacion: unknown;
+  examenData: FirebaseFirestore.DocumentData;
+  uid: string;
+  intentosContados: number;
+  intentosMaximos: number;
+}) => {
+  const { res, status, id, registro, fechaRealizacion, examenData, uid, intentosContados, intentosMaximos } = params;
+  const { estado, aprobado, motivoCierre, intentoNumero } = registro;
+  const publicacionManual = examenData.publicacionManualDeNota === true;
+  const ahoraAgotoIntentos = intentosContados >= intentosMaximos;
+
+  const puedeReintentar = estado === "completado" && !aprobado && !ahoraAgotoIntentos;
+  const puedeRevisar =
+    estado === "completado" &&
+    puedeRevisarExamen({
+      examenData,
+      aprobado,
+      intentosUsados: intentosContados,
+      intentosMaximos,
+      revisionHabilitadaAlumno: await isRevisionHabilitadaAlumno(uid, registro.idExamen),
+    });
+
+  const mensajePorMotivo =
+    motivoCierre === "tiempo" && estado === "pendiente_correccion"
+      ? publicacionManual
+        ? "Se agotó el tiempo. Tu evaluación fue enviada y la nota será publicada por el administrador en las próximas horas."
+        : "Se agotó el tiempo. Tu evaluación fue enviada y quedó pendiente de corrección."
+      : motivoCierre === "tiempo"
+      ? ahoraAgotoIntentos
+        ? "Se agotó el tiempo. El intento quedó registrado y alcanzaste el máximo de intentos."
+        : "Se agotó el tiempo. El intento quedó registrado."
+      : motivoCierre === "abandono"
+        ? ahoraAgotoIntentos
+          ? "Cerraste la evaluación. El intento quedó registrado y alcanzaste el máximo de intentos."
+          : "Cerraste la evaluación. El intento quedó registrado."
+        : estado === "pendiente_correccion"
+          ? publicacionManual
+            ? "Tu evaluación fue enviada. La nota será publicada por el administrador en las próximas horas."
+            : "Evaluación enviada. Quedó pendiente de corrección."
+          : aprobado
+            ? "Felicitaciones, aprobaste la evaluación"
+            : ahoraAgotoIntentos
+              ? mensajeIntentosAgotados(intentosMaximos)
+              : "No aprobaste la evaluación. Podés reintentar cuando quieras";
+
+  return res.status(status).json({
+    message: mensajePorMotivo,
+    resultado: {
+      id,
+      idExamen: registro.idExamen,
+      idFormacion: registro.idFormacion,
+      fechaRealizacion,
+      motivoCierre,
+      notaMinima: registro.notaMinima,
+      totalPreguntas: registro.totalPreguntas,
+      respuestasCorrectas: registro.respuestasCorrectas,
+      puntosObtenidos: registro.puntosObtenidos,
+      porcentajeAciertos: registro.porcentajeAciertos,
+      nota: registro.nota,
+      aprobado,
+      estado,
+      intentoNumero,
+      intentosUsados: intentoNumero,
+      intentosMaximos,
+      puedeReintentar,
+      puedeRevisar,
+      publicacionManualDeNota: publicacionManual,
+    },
+  });
+};
 
 export const submitExamenRealizado = async (
   req: AuthenticatedRequest,
@@ -55,7 +139,7 @@ export const submitExamenRealizado = async (
       });
     }
 
-    const examenDoc = await examenesCollection.doc(payload.idExamen).get();
+    const examenDoc = await getExamenDocCached(payload.idExamen);
     if (!examenDoc.exists) {
       return res.status(404).json({ error: "Examen no encontrado" });
     }
@@ -65,6 +149,38 @@ export const submitExamenRealizado = async (
       return res.status(400).json({
         error: "El examen no corresponde al curso indicado",
       });
+    }
+
+    const intentoRef = payload.idEnvio
+      ? examenesRealizadosCollection.doc(`${uid}__${payload.idExamen}__${payload.idEnvio}`)
+      : examenesRealizadosCollection.doc();
+
+    // El alumno reenvía cuando no le llegó la respuesta: si ya se guardó, devolver ese resultado.
+    // Va antes de las demás validaciones, que ahora rechazarían al intento que ya está registrado.
+    const responderYaGuardado = async () => {
+      const guardado = await intentoRef.get();
+      if (!guardado.exists) return null;
+      return responderEnvio({
+        res,
+        status: 200,
+        id: guardado.id,
+        registro: guardado.data()!,
+        fechaRealizacion: formatFirestoreDoc(guardado).fechaRealizacion,
+        examenData,
+        uid,
+        intentosContados: guardado.data()!.intentoNumero,
+        intentosMaximos: await resolveIntentosMaximos(
+          uid,
+          payload.idExamen,
+          payload.idFormacion,
+          getIntentosDefaultExamen(examenData)
+        ),
+      });
+    };
+
+    if (payload.idEnvio) {
+      const respuesta = await responderYaGuardado();
+      if (respuesta) return respuesta;
     }
 
     if (!isExamenHabilitado(examenData)) {
@@ -234,7 +350,6 @@ export const submitExamenRealizado = async (
         : resolveEstadoExamenRealizado(preguntas);
 
     const intentoNumero = (ultimoIntento?.intentoNumero || 0) + 1;
-    const ahoraAgotoIntentos = intentosUsados + 1 >= intentosMaximos;
     const now = new Date();
 
     const registro = {
@@ -257,65 +372,27 @@ export const submitExamenRealizado = async (
       motivoCierre: payload.motivoCierre ?? "envio",
     };
 
-    const saved = await examenesRealizadosCollection.add(registro);
-    const savedDoc = await saved.get();
+    try {
+      await intentoRef.create(registro);
+    } catch (error: any) {
+      // Dos reenvíos del mismo envío al mismo tiempo: el otro ya lo guardó
+      if (error?.code === FIRESTORE_ALREADY_EXISTS) {
+        const respuesta = await responderYaGuardado();
+        if (respuesta) return respuesta;
+      }
+      throw error;
+    }
 
-    const puedeReintentar =
-      estado === "completado" && !calificacion.aprobado && !ahoraAgotoIntentos;
-    const puedeRevisar =
-      estado === "completado" &&
-      puedeRevisarExamen({
-        examenData,
-        aprobado: calificacion.aprobado,
-        intentosUsados: intentosUsados + 1,
-        intentosMaximos,
-        revisionHabilitadaAlumno: await isRevisionHabilitadaAlumno(
-          uid,
-          payload.idExamen
-        ),
-      });
-
-    const mensajePorMotivo =
-      payload.motivoCierre === "tiempo" && estado === "pendiente_correccion"
-        ? publicacionManual
-          ? "Se agotó el tiempo. Tu evaluación fue enviada y la nota será publicada por el administrador en las próximas horas."
-          : "Se agotó el tiempo. Tu evaluación fue enviada y quedó pendiente de corrección."
-        : payload.motivoCierre === "tiempo"
-        ? ahoraAgotoIntentos
-          ? "Se agotó el tiempo. El intento quedó registrado y alcanzaste el máximo de intentos."
-          : "Se agotó el tiempo. El intento quedó registrado."
-        : payload.motivoCierre === "abandono"
-          ? ahoraAgotoIntentos
-            ? "Cerraste la evaluación. El intento quedó registrado y alcanzaste el máximo de intentos."
-            : "Cerraste la evaluación. El intento quedó registrado."
-          : estado === "pendiente_correccion"
-            ? publicacionManual
-              ? "Tu evaluación fue enviada. La nota será publicada por el administrador en las próximas horas."
-              : "Evaluación enviada. Quedó pendiente de corrección."
-            : calificacion.aprobado
-              ? "Felicitaciones, aprobaste la evaluación"
-              : ahoraAgotoIntentos
-                ? mensajeIntentosAgotados(intentosMaximos)
-                : "No aprobaste la evaluación. Podés reintentar cuando quieras";
-
-    return res.status(201).json({
-      message: mensajePorMotivo,
-      resultado: {
-        ...formatFirestoreDoc(savedDoc),
-        totalPreguntas: calificacion.totalPreguntas,
-        respuestasCorrectas: calificacion.respuestasCorrectas,
-        puntosObtenidos: calificacion.puntosObtenidos,
-        porcentajeAciertos: calificacion.porcentajeAciertos,
-        nota: calificacion.nota,
-        aprobado: calificacion.aprobado,
-        estado,
-        intentoNumero,
-        intentosUsados: intentoNumero,
-        intentosMaximos,
-        puedeReintentar,
-        puedeRevisar,
-        publicacionManualDeNota: publicacionManual,
-      },
+    return await responderEnvio({
+      res,
+      status: 201,
+      id: intentoRef.id,
+      registro,
+      fechaRealizacion: now.toISOString(),
+      examenData,
+      uid,
+      intentosContados: intentosUsados + 1,
+      intentosMaximos,
     });
   } catch (error) {
     console.error("submitExamenRealizado error:", error);

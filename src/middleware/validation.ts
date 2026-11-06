@@ -22,6 +22,16 @@ const getClientIP = (req: Request): string => {
   );
 };
 
+// El límite va por cuenta: detrás del proxy de Render los pedidos llegan con la IP del proxy, y
+// tampoco alcanzaría la IP real si rinden desde una misma red. Por IP, unos pocos errores de un
+// alumno bloquearían el login de todos los demás.
+const getLoginAttemptKey = (req: Request): string => {
+  const email = req.body?.email;
+  return typeof email === "string" && email.trim()
+    ? email.trim().toLowerCase()
+    : getClientIP(req);
+};
+
 const cleanOldAttempts = () => {
   const now = new Date();
   for (const [ip, attempt] of loginAttempts.entries()) {
@@ -149,11 +159,11 @@ export const validateLogin = (
 ) => {
   const { email, password }: LoginData = req.body;
   const errors: string[] = [];
-  const clientIP = getClientIP(req);
+  const attemptKey = getLoginAttemptKey(req);
   const now = new Date();
 
   // Verificar rate limiting
-  const attempt = loginAttempts.get(clientIP);
+  const attempt = loginAttempts.get(attemptKey);
   if (attempt) {
     // Si está bloqueado temporalmente
     if (attempt.blockedUntil && now < attempt.blockedUntil) {
@@ -168,13 +178,13 @@ export const validateLogin = (
 
     // Resetear contador si han pasado más de 15 minutos desde el último intento
     if (now.getTime() - attempt.lastAttempt.getTime() > 15 * 60 * 1000) {
-      loginAttempts.delete(clientIP);
+      loginAttempts.delete(attemptKey);
     } else if (attempt.count >= 5) {
       // Bloquear por tiempo creciente: 5 intentos = 15min, 10 = 30min, 15 = 1h
       const blockMinutes = Math.min(15 * Math.ceil(attempt.count / 5), 60);
       attempt.blockedUntil = new Date(now.getTime() + blockMinutes * 60 * 1000);
       attempt.lastAttempt = now;
-      loginAttempts.set(clientIP, attempt);
+      loginAttempts.set(attemptKey, attempt);
 
       return res.status(429).json({
         error: `Demasiados intentos fallidos. Cuenta bloqueada por ${blockMinutes} minutos.`,
@@ -200,13 +210,13 @@ export const validateLogin = (
   }
 
   if (errors.length > 0) {
-    const currentAttempt = loginAttempts.get(clientIP) || {
+    const currentAttempt = loginAttempts.get(attemptKey) || {
       count: 0,
       lastAttempt: now,
     };
     currentAttempt.count++;
     currentAttempt.lastAttempt = now;
-    loginAttempts.set(clientIP, currentAttempt);
+    loginAttempts.set(attemptKey, currentAttempt);
 
     return res.status(400).json({
       error: "Datos de login inválidos",
@@ -216,7 +226,7 @@ export const validateLogin = (
 
   req.body.email = email.toLowerCase().trim();
   (req as any).loginAttempt = {
-    clientIP,
+    attemptKey,
     currentAttempts: attempt?.count || 0,
   };
 
@@ -286,30 +296,20 @@ export const trackLoginResult = (
   }
 
   res.send = function (data) {
-    const { clientIP } = loginAttemptInfo;
+    const { attemptKey } = loginAttemptInfo;
     const now = new Date();
 
     if (res.statusCode === 200 || res.statusCode === 201) {
-      loginAttempts.delete(clientIP);
-      console.log(`Login exitoso desde IP: ${clientIP}`);
+      loginAttempts.delete(attemptKey);
     } else if (res.statusCode === 401 || res.statusCode === 403) {
-      const attempt = loginAttempts.get(clientIP) || {
+      const attempt = loginAttempts.get(attemptKey) || {
         count: 0,
         lastAttempt: now,
       };
       attempt.count++;
       attempt.lastAttempt = now;
-      loginAttempts.set(clientIP, attempt);
+      loginAttempts.set(attemptKey, attempt);
 
-      console.log(
-        `Login fallido desde IP: ${clientIP}, intentos: ${attempt.count}`
-      );
-
-      if (attempt.count >= 3) {
-        console.warn(
-          `⚠️  ALERTA DE SEGURIDAD: ${attempt.count} intentos fallidos desde IP: ${clientIP}`
-        );
-      }
     }
 
     return originalSend.call(this, data);
