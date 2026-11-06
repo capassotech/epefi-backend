@@ -1,5 +1,6 @@
 import { firestore } from "../config/firebase";
 import { formatFirestoreDoc } from "./utils";
+import { cached, invalidateCached } from "./shortCache";
 import {
   computeGradeFromPuntosObtenidos,
   esPreguntaDesarrollo,
@@ -77,8 +78,41 @@ const matchesAlumnoSearch = (
   return nombre.includes(term) || email.includes(term) || dni.includes(term);
 };
 
-export const fetchExamenesRealizadosEnriched = async (
+const CAMPOS_LISTADO = [
+  "idAlumno",
+  "idExamen",
+  "idFormacion",
+  "nota",
+  "porcentajeAciertos",
+  "respuestasCorrectas",
+  "totalPreguntas",
+  "aprobado",
+  "estado",
+  "intentoNumero",
+  "fechaRealizacion",
+];
+
+const LISTADO_CACHE_PREFIX = "realizados:";
+const LISTADO_TTL_MS = 10_000;
+
+/**
+ * Cada página del admin pide el listado completo y recorta. Durante un examen, varios
+ * administradores comparten la misma lectura: un envío nuevo tarda hasta 10 s en aparecer.
+ * El resultado es compartido: quien lo recibe no debe modificarlo.
+ */
+export const fetchExamenesRealizadosEnriched = (
   filters: ExamenesRealizadosFilters = {}
+): Promise<ExamenRealizadoEnriched[]> =>
+  cached(`${LISTADO_CACHE_PREFIX}${JSON.stringify(filters)}`, LISTADO_TTL_MS, () =>
+    loadExamenesRealizadosEnriched(filters)
+  );
+
+/** Después de corregir: el intento tiene que cambiar de lista al instante. */
+export const invalidateExamenesRealizadosListado = (): void =>
+  invalidateCached(LISTADO_CACHE_PREFIX);
+
+const loadExamenesRealizadosEnriched = async (
+  filters: ExamenesRealizadosFilters
 ): Promise<ExamenRealizadoEnriched[]> => {
   let query: FirebaseFirestore.Query = examenesRealizadosCollection;
 
@@ -90,7 +124,9 @@ export const fetchExamenesRealizadosEnriched = async (
     query = query.where("idAlumno", "==", filters.idAlumno);
   }
 
-  const snapshot = await query.get();
+  // Solo los campos del listado: las preguntas y respuestas de cada intento pesan mucho y,
+  // con cientos de intentos, cargarlas en cada pedido puede dejar al servidor sin memoria
+  const snapshot = await query.select(...CAMPOS_LISTADO).get();
   let records = snapshot.docs.map((doc) => formatFirestoreDoc(doc));
 
   if (filters.idExamen && filters.idFormacion) {

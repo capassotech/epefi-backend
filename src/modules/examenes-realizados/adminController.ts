@@ -11,6 +11,7 @@ import {
 import {
   buildExamenRealizadoDetalle,
   fetchExamenesRealizadosEnriched,
+  invalidateExamenesRealizadosListado,
   parseExamenesRealizadosFilters,
   recordsToCsv,
 } from "../../utils/examenesRealizadosService";
@@ -140,6 +141,7 @@ export const corregirExamenRealizadoAdmin = async (
         fechaCorreccion: new Date(),
         corregidoPor: req.user.uid,
       });
+      invalidateExamenesRealizadosListado();
       const detalle = await buildExamenRealizadoDetalle(id);
       return res.json({
         message: "Nota publicada correctamente",
@@ -224,6 +226,7 @@ export const corregirExamenRealizadoAdmin = async (
       fechaCorreccion: new Date(),
       corregidoPor: req.user.uid,
     });
+    invalidateExamenesRealizadosListado();
 
     const detalle = await buildExamenRealizadoDetalle(id);
     return res.json({

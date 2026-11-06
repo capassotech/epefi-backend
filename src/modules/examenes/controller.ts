@@ -1,3 +1,4 @@
+import { invalidateExamenCache } from "../../utils/examenCache";
 import { Response } from "express";
 import { firestore } from "../../config/firebase";
 import type { AuthenticatedRequest } from "../../middleware/authMiddleware";
@@ -157,6 +158,7 @@ export const createExamen = async (req: AuthenticatedRequest, res: Response) => 
     };
 
     const nuevoExamen = await examenesCollection.add(examenToCreate);
+    invalidateExamenCache();
     const createdDoc = await nuevoExamen.get();
 
     return res.status(201).json(formatFirestoreDoc(createdDoc));
@@ -228,6 +230,7 @@ export const updateExamen = async (req: AuthenticatedRequest, res: Response) => 
     };
 
     await examenesCollection.doc(id).set(examenToUpdate);
+    invalidateExamenCache();
     const updatedDoc = await examenesCollection.doc(id).get();
 
     return res.json({
@@ -252,6 +255,7 @@ export const deleteExamen = async (req: AuthenticatedRequest, res: Response) => 
     }
 
     await examenesCollection.doc(id).delete();
+    invalidateExamenCache();
 
     return res.json({
       message: "Examen eliminado correctamente",
@@ -288,6 +292,7 @@ export const setExamenHabilitado = async (
       habilitado,
       fechaActualizacion: new Date(),
     });
+    invalidateExamenCache();
 
     const updatedDoc = await examenesCollection.doc(id).get();
 

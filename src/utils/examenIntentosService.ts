@@ -257,12 +257,14 @@ export const listAlumnosIntentosParaExamen = async (params: {
     await Promise.all([
       usersCollection
         .where("cursos_asignados", "array-contains", params.idFormacion)
+        .select("nombre", "apellido", "email")
         .get(),
       intentosUsuarioCollection
         .where("idExamen", "==", params.idExamen)
         .get(),
       examenesRealizadosCollection
         .where("idExamen", "==", params.idExamen)
+        .select("idAlumno")
         .get(),
       revisionUsuarioCollection
         .where("idExamen", "==", params.idExamen)

@@ -1,3 +1,4 @@
+import { cached, USUARIOS_LISTADO_CACHE_KEY } from "../../utils/shortCache";
 import { Request, Response } from 'express';
 import { firebaseAuth, firestore } from '../../config/firebase';
 import { ValidatedUpdateUser, ValidatedUser, ValidatedUpdateProfile } from '../../types/schemas';
@@ -65,6 +66,16 @@ export const getUser = async (req: AuthenticatedRequest, res: Response) => {
   });
 };
 
+/**
+ * Todos los usuarios, compartidos unos segundos entre las páginas y los administradores.
+ * `index.ts` limpia esta caché después de cualquier cambio en usuarios, cursos o materias.
+ */
+const getUsuariosListadoCached = (): Promise<any[]> =>
+  cached(USUARIOS_LISTADO_CACHE_KEY, 15_000, async () => {
+    const userDocs = await firestore.collection('users').get();
+    return userDocs.docs.map((doc) => formatFirestoreDoc(doc));
+  });
+
 export const getUsers = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const isAuthorized = await validateUser(req);
@@ -84,9 +95,7 @@ export const getUsers = async (req: AuthenticatedRequest, res: Response) => {
     const sortBy = ((req.query.sortBy as string) || "fechaRegistro").trim();
     const sortOrder = ((req.query.sortOrder as string) || "desc").trim().toLowerCase() === "asc" ? "asc" : "desc";
 
-    const userDocs = await firestore.collection('users').get();
-
-    const users = userDocs.docs.map((doc) => formatFirestoreDoc(doc));
+    const users = await getUsuariosListadoCached();
 
     const filteredUsers = users
       .filter((user: any) => {
