@@ -224,9 +224,10 @@ export const submitExamenRealizado = async (
       preguntas,
       respuestasNormalizadas
     );
-    // Abandono y tiempo agotado no generan corrección manual aunque haya preguntas de desarrollo.
+    // Solo el abandono cierra sin corrección manual: el tiempo agotado sigue el mismo camino que un
+    // envío normal, para que el docente corrija el desarrollo y se respete la publicación manual.
     const publicacionManual = examenData.publicacionManualDeNota === true;
-    const estado = esCierreForzado
+    const estado = payload.motivoCierre === "abandono"
       ? "completado"
       : publicacionManual
         ? "pendiente_correccion"
@@ -275,7 +276,11 @@ export const submitExamenRealizado = async (
       });
 
     const mensajePorMotivo =
-      payload.motivoCierre === "tiempo"
+      payload.motivoCierre === "tiempo" && estado === "pendiente_correccion"
+        ? publicacionManual
+          ? "Se agotó el tiempo. Tu evaluación fue enviada y la nota será publicada por el administrador en las próximas horas."
+          : "Se agotó el tiempo. Tu evaluación fue enviada y quedó pendiente de corrección."
+        : payload.motivoCierre === "tiempo"
         ? ahoraAgotoIntentos
           ? "Se agotó el tiempo. El intento quedó registrado y alcanzaste el máximo de intentos."
           : "Se agotó el tiempo. El intento quedó registrado."
