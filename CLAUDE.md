@@ -14,6 +14,7 @@ Las reglas generales están en `../CLAUDE.md`. Ojo con los mensajes de error: se
 ## Errores de video — `src/modules/errores-video/routes.ts`
 - `POST /api/errores-video` (alumno autenticado). Guarda en Firestore `erroresVideo/{sha1 de la url}`: `url`, curso, módulo, nombre del material, `total` y las últimas 30 ocurrencias (`codigo` de MediaError, uid, email, user agent, conexión).
 - Códigos: 2 red, 3 no se pudo decodificar, 4 formato o URL no soportados.
+- Admin (`validateUser`): `GET /api/errores-video` (últimos 200 por `ultimaFecha`) y `DELETE /api/errores-video/:id` para marcar como resuelto (borra el registro).
 
 ## Exámenes realizados — `src/utils/examenesRealizadosService.ts`
 - Orden por `sortBy`/`sortDirection` (alumno, curso, examen, nota, fecha), que se leen en `parseExamenesRealizadosFilters`.
