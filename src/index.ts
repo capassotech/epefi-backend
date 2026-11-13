@@ -12,6 +12,7 @@ import materiasRoutes from "./modules/materia/routes";
 import modulosRoutes from "./modules/modulos/routes";
 import examenesRoutes from "./modules/examenes/routes";
 import examenesRealizadosRoutes from "./modules/examenes-realizados/routes";
+import erroresVideoRoutes from "./modules/errores-video/routes";
 import { invalidateCached, USUARIOS_LISTADO_CACHE_KEY } from "./utils/shortCache";
 
 const app = express();
@@ -36,6 +37,7 @@ app.use("/api/modulos", modulosRoutes);
 app.use("/api/usuarios", usersRoutes);
 app.use("/api/examenes", examenesRoutes);
 app.use("/api/examenes-realizados", examenesRealizadosRoutes);
+app.use("/api/errores-video", erroresVideoRoutes);
 
 app.get("/", (_, res) => {
   res.json({
