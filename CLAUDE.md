@@ -11,6 +11,10 @@ Las reglas generales están en `../CLAUDE.md`. Ojo con los mensajes de error: se
 - `npm start`: corre `node dist/index.js`.
 - En Render el Start Command tiene que ser **`npm start`**. Si arranca con `npm run dev`, el deploy se corta por timeout de puerto.
 
+## Errores de video — `src/modules/errores-video/routes.ts`
+- `POST /api/errores-video` (alumno autenticado). Guarda en Firestore `erroresVideo/{sha1 de la url}`: `url`, curso, módulo, nombre del material, `total` y las últimas 30 ocurrencias (`codigo` de MediaError, uid, email, user agent, conexión).
+- Códigos: 2 red, 3 no se pudo decodificar, 4 formato o URL no soportados.
+
 ## Exámenes realizados — `src/utils/examenesRealizadosService.ts`
 - Orden por `sortBy`/`sortDirection` (alumno, curso, examen, nota, fecha), que se leen en `parseExamenesRealizadosFilters`.
 - La búsqueda también matchea el título del curso y del examen.
