@@ -3,8 +3,9 @@ import { createHash } from "crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { z } from "zod";
 import { authMiddleware, AuthenticatedRequest } from "../../middleware/authMiddleware";
-import { validateBody } from "../../middleware/zodValidation";
+import { validateBody, validateParams } from "../../middleware/zodValidation";
 import { db } from "../../config/firebase";
+import { validateUser } from "../../utils/utils";
 
 /**
  * Registro de videos que no se pudieron reproducir en la app del alumno.
@@ -70,8 +71,46 @@ const registrarErrorVideo = async (req: AuthenticatedRequest, res: Response) => 
   }
 };
 
+/** Admin: videos con fallas, los más recientes primero. */
+const listarErroresVideo = async (req: AuthenticatedRequest, res: Response) => {
+  if (!(await validateUser(req))) {
+    res.status(403).json({ error: "No autorizado. Se requieren permisos de administrador." });
+    return;
+  }
+  try {
+    const snap = await db.collection("erroresVideo").orderBy("ultimaFecha", "desc").limit(200).get();
+    res.json({ data: snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })) });
+  } catch (error) {
+    console.error("Error al listar fallas de video:", error);
+    res.status(500).json({ error: "No se pudieron cargar los errores de video" });
+  }
+};
+
+/** Admin: se marca como resuelto borrando el registro; si vuelve a fallar, aparece de nuevo. */
+const resolverErrorVideo = async (req: AuthenticatedRequest, res: Response) => {
+  if (!(await validateUser(req))) {
+    res.status(403).json({ error: "No autorizado. Se requieren permisos de administrador." });
+    return;
+  }
+  try {
+    await db.collection("erroresVideo").doc(req.params.id).delete();
+    res.status(204).end();
+  } catch (error) {
+    console.error("Error al resolver falla de video:", error);
+    res.status(500).json({ error: "No se pudo marcar como resuelto" });
+  }
+};
+
+const IdParamSchema = z.object({ id: z.string().regex(/^[0-9a-f]{40}$/, "ID inválido") });
+
 router.post("/", authMiddleware, validateBody(ErrorVideoSchema), (req: Request, res: Response) =>
   registrarErrorVideo(req as AuthenticatedRequest, res)
+);
+router.get("/", authMiddleware, (req: Request, res: Response) =>
+  listarErroresVideo(req as AuthenticatedRequest, res)
+);
+router.delete("/:id", authMiddleware, validateParams(IdParamSchema), (req: Request, res: Response) =>
+  resolverErrorVideo(req as AuthenticatedRequest, res)
 );
 
 export default router;
