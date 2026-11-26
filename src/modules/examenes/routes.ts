@@ -9,6 +9,7 @@ import {
 } from "./controller";
 import {
   getExamenEstadoFormacion,
+  getExamenEstadosFormacion,
   getExamenParaAlumno,
 } from "./studentController";
 import {
@@ -73,6 +74,9 @@ const deleteExamenHandler = (req: Request, res: Response) =>
 const getExamenEstadoFormacionHandler = (req: Request, res: Response) =>
   getExamenEstadoFormacion(req as AuthenticatedRequest, res);
 
+const getExamenEstadosFormacionHandler = (req: Request, res: Response) =>
+  getExamenEstadosFormacion(req as AuthenticatedRequest, res);
+
 const getExamenParaAlumnoHandler = (req: Request, res: Response) =>
   getExamenParaAlumno(req as AuthenticatedRequest, res);
 
@@ -95,6 +99,12 @@ const setHabilitadoHandler = (req: Request, res: Response) =>
   setExamenHabilitado(req as AuthenticatedRequest, res);
 
 // Rutas alumno (antes de /:id admin)
+router.get(
+  "/alumno/formacion/:idFormacion/estados",
+  authMiddleware,
+  getExamenEstadosFormacionHandler
+);
+
 router.get(
   "/alumno/formacion/:idFormacion/estado",
   authMiddleware,

@@ -115,7 +115,14 @@ export const getExamenEstadoFormacion = async (
       user.data.modulos_habilitados || {}
     );
 
-    const examenDoc = await getExamenDocByFormacion(idFormacion, uid);
+    const { idExamen: idExamenQuery } = req.query;
+    let examenDoc;
+    if (typeof idExamenQuery === "string" && idExamenQuery.trim()) {
+      const docs = await getExamenesDeFormacionCached(idFormacion);
+      examenDoc = docs.find((d) => d.id === idExamenQuery.trim()) ?? null;
+    } else {
+      examenDoc = await getExamenDocByFormacion(idFormacion, uid);
+    }
     const examenId = examenDoc?.id ?? null;
     const examenData = examenDoc?.data();
 
@@ -225,6 +232,122 @@ export const getExamenEstadoFormacion = async (
   } catch (error) {
     console.error("getExamenEstadoFormacion error:", error);
     return res.status(500).json({ error: "Error al obtener estado del examen" });
+  }
+};
+
+export const getExamenEstadosFormacion = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    const { idFormacion } = req.params;
+    const uid = req.user.uid;
+
+    const user = await getUserOr404(uid);
+    if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
+
+    if (!studentHasFormationAssigned(user.data.cursos_asignados, idFormacion)) {
+      return res.status(403).json({ error: "No tenés asignado este curso" });
+    }
+
+    const progresoFormacion = await getFormationProgress(
+      idFormacion,
+      user.data.progreso || {},
+      user.data.modulos_habilitados || {}
+    );
+
+    const examenDocs = await getExamenesDeFormacionCached(idFormacion);
+
+    if (examenDocs.length === 0) {
+      return res.json({ idFormacion, formacionCompleta: progresoFormacion.completo, examenes: [] });
+    }
+
+    const estadosPromises = examenDocs.map(async (examenDoc) => {
+      const examenId = examenDoc.id;
+      const examenData = examenDoc.data();
+
+      let intentosMaximos = getIntentosDefaultExamen(examenData);
+      const [intentos, maxIntentos, revisionHabilitada] = await Promise.all([
+        getIntentosAlumno(uid, examenId),
+        resolveIntentosMaximos(uid, examenId, idFormacion, intentosMaximos),
+        isRevisionHabilitadaAlumno(uid, examenId),
+      ]);
+      const ultimoIntento = intentos.ultimo;
+      const intentosUsados = intentos.total;
+      intentosMaximos = maxIntentos;
+      const algunoAprobado = intentos.algunoAprobado;
+      const revisionHabilitadaAlumno = revisionHabilitada;
+
+      const formacionCompleta = progresoFormacion.completo;
+      const requiereCompletarCurso = examenData?.requiereCompletarCurso !== false;
+      const examenHabilitado = isExamenHabilitado(examenData);
+      const examenDisponible = formacionCompleta || !requiereCompletarCurso;
+      const yaAprobo = ultimoIntento?.aprobado === true;
+      const tieneIntentoPrevio = ultimoIntento !== null;
+      const pendienteCorreccion = ultimoIntento?.estado === "pendiente_correccion";
+      const intentosAgotados = intentosUsados >= intentosMaximos && !yaAprobo && !pendienteCorreccion;
+      const puedeRealizar =
+        examenHabilitado &&
+        !yaAprobo &&
+        !pendienteCorreccion &&
+        !intentosAgotados &&
+        (formacionCompleta || tieneIntentoPrevio || !requiereCompletarCurso);
+
+      return {
+        idFormacion,
+        formacionCompleta,
+        progresoFormacion: {
+          totalModulos: progresoFormacion.totalModulos,
+          modulosCompletados: progresoFormacion.modulosCompletados,
+          modulosPendientes: progresoFormacion.modulosPendientes,
+        },
+        examenDisponible,
+        examenHabilitado,
+        idExamen: examenId,
+        titulo: examenData?.titulo ?? null,
+        notaMinima:
+          typeof examenData?.notaMinima === "number" && examenData.notaMinima > 0
+            ? examenData.notaMinima : 70,
+        requiereCompletarCurso,
+        duracionMinutos:
+          typeof examenData?.duracionMinutos === "number" && examenData.duracionMinutos > 0
+            ? examenData.duracionMinutos : 90,
+        ultimoIntento: ultimoIntento
+          ? {
+              id: ultimoIntento.id,
+              nota: ultimoIntento.nota,
+              aprobado: ultimoIntento.aprobado,
+              totalPreguntas: ultimoIntento.totalPreguntas,
+              respuestasCorrectas: ultimoIntento.respuestasCorrectas ?? ultimoIntento.preguntasCorrectas,
+              porcentajeAciertos: ultimoIntento.porcentajeAciertos,
+              intentoNumero: ultimoIntento.intentoNumero,
+              fechaRealizacion: ultimoIntento.fechaRealizacion,
+              estado: ultimoIntento.estado === "pendiente_correccion" ? "pendiente_correccion" : "completado",
+            }
+          : null,
+        puedeRealizar,
+        puedeRevisar:
+          tieneIntentoPrevio &&
+          !pendienteCorreccion &&
+          puedeRevisarExamen({ examenData, aprobado: algunoAprobado, intentosUsados, intentosMaximos, revisionHabilitadaAlumno }),
+        intentosUsados,
+        intentosMaximos,
+        intentosAgotados,
+        mensajeBloqueo: !examenHabilitado
+          ? MENSAJE_EXAMEN_DESHABILITADO
+          : intentosAgotados
+            ? mensajeIntentosAgotados(intentosMaximos)
+            : null,
+        puedeReintentar:
+          examenHabilitado && !yaAprobo && !pendienteCorreccion && !intentosAgotados && tieneIntentoPrevio,
+      };
+    });
+
+    const examenes = await Promise.all(estadosPromises);
+    return res.json({ idFormacion, formacionCompleta: progresoFormacion.completo, examenes });
+  } catch (error) {
+    console.error("getExamenEstadosFormacion error:", error);
+    return res.status(500).json({ error: "Error al obtener estados de exámenes" });
   }
 };
 
