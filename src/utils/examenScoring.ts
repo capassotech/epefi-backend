@@ -30,7 +30,7 @@ export const isRevisionPermitida = (
 ): boolean => data?.permitirRevision !== false;
 
 export const MENSAJE_EXAMEN_DESHABILITADO =
-  "Esta evaluación aún no está disponible. Las evaluaciones se habilitarán según el plan de estudios. Si tenés alguna consulta, comunicate con tu profesor.";
+  "El examen todavía no está habilitado.";
 
 export const mensajeIntentosAgotados = (max = MAX_INTENTOS_EXAMEN): string =>
   `Alcanzaste el máximo de ${max} intentos. La evaluación quedó bloqueada y ya no podés volver a realizarla.`;
