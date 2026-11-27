@@ -1,10 +1,14 @@
 import { firestore } from "../config/firebase";
 import { formatFirestoreDoc } from "./utils";
-import { getModuleContentKeys } from "./formacionProgress";
+import { getModuleContentKeys, isModuleContentCompleted } from "./formacionProgress";
+import { getExamenesDeFormacionCached } from "./examenCache";
+import { getIntentosDefaultExamen, isExamenHabilitado } from "./examenScoring";
 
 const cursosCollection = firestore.collection("cursos");
 const materiasCollection = firestore.collection("materias");
 const modulosCollection = firestore.collection("modulos");
+const examenesRealizadosCollection = firestore.collection("examenes_realizados");
+const intentosUsuarioCollection = firestore.collection("examenes_intentos_usuario");
 
 export type StudentHomeCourse = {
   id: string;
@@ -17,13 +21,15 @@ export type StudentHomeCourse = {
   progresoPorcentaje: number;
   progresoCompletados: number;
   progresoTotal: number;
+  /** Hay un examen del curso que el alumno puede rendir ahora. */
+  examenParaRendir: boolean;
 };
 
 const pickCourseForHome = (
   course: Record<string, unknown>
 ): Omit<
   StudentHomeCourse,
-  "progresoPorcentaje" | "progresoCompletados" | "progresoTotal"
+  "progresoPorcentaje" | "progresoCompletados" | "progresoTotal" | "examenParaRendir"
 > => ({
   id: String(course.id ?? ""),
   titulo: String(course.titulo ?? ""),
@@ -83,10 +89,98 @@ const computeContentProgress = (
   };
 };
 
+const normalizeIntentosMaximos = (raw: unknown): number | null => {
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 1) return null;
+  return Math.floor(value);
+};
+
+const toMillis = (value: unknown): number => {
+  if (value && typeof (value as { toMillis?: unknown }).toMillis === "function") {
+    return (value as { toMillis: () => number }).toMillis();
+  }
+  const time = new Date(value as string | number | Date).getTime();
+  return Number.isNaN(time) ? 0 : time;
+};
+
+/**
+ * Cursos con algún examen que el alumno puede rendir ahora. Usa la misma regla que `puedeRealizar`
+ * del estado del examen, pero con dos lecturas por alumno en vez de varias por cada examen.
+ */
+const getCursosConExamenParaRendir = async (
+  uid: string,
+  cursos: Array<{ id: string; formacionCompleta: boolean }>
+): Promise<Set<string>> => {
+  const resultado = new Set<string>();
+  const examenesPorCurso = await Promise.all(
+    cursos.map((curso) => getExamenesDeFormacionCached(curso.id))
+  );
+  if (examenesPorCurso.every((docs) => docs.length === 0)) return resultado;
+
+  const [intentosSnap, overridesSnap] = await Promise.all([
+    examenesRealizadosCollection
+      .where("idAlumno", "==", uid)
+      .select("idExamen", "aprobado", "estado", "fechaRealizacion")
+      .get(),
+    intentosUsuarioCollection.where("idAlumno", "==", uid).get(),
+  ]);
+
+  const intentosPorExamen = new Map<string, { total: number; ultimo: FirebaseFirestore.DocumentData }>();
+  for (const doc of intentosSnap.docs) {
+    const data = doc.data();
+    const idExamen = String(data.idExamen || "");
+    const actual = intentosPorExamen.get(idExamen);
+    if (!actual) {
+      intentosPorExamen.set(idExamen, { total: 1, ultimo: data });
+      continue;
+    }
+    actual.total++;
+    if (toMillis(data.fechaRealizacion) > toMillis(actual.ultimo.fechaRealizacion)) actual.ultimo = data;
+  }
+
+  // Igual que resolveIntentosMaximos: primero el del examen, después cualquiera del curso
+  const overridePorExamen = new Map<string, number>();
+  const overridePorCurso = new Map<string, number>();
+  for (const doc of overridesSnap.docs) {
+    const data = doc.data() || {};
+    const max = normalizeIntentosMaximos(data.intentosMaximos);
+    if (max == null) continue;
+    if (doc.id === `${uid}__${String(data.idExamen || "")}`) overridePorExamen.set(String(data.idExamen), max);
+    const idFormacion = String(data.idFormacion || "").trim();
+    if (idFormacion && !overridePorCurso.has(idFormacion)) overridePorCurso.set(idFormacion, max);
+  }
+
+  cursos.forEach((curso, index) => {
+    const puedeRendirAlguno = examenesPorCurso[index].some((examenDoc) => {
+      const examenData = examenDoc.data();
+      if (!isExamenHabilitado(examenData)) return false;
+
+      const intentos = intentosPorExamen.get(examenDoc.id);
+      const ultimo = intentos?.ultimo;
+      const yaAprobo = ultimo?.aprobado === true;
+      const pendienteCorreccion = ultimo?.estado === "pendiente_correccion";
+      if (yaAprobo || pendienteCorreccion) return false;
+
+      const intentosMaximos =
+        overridePorExamen.get(examenDoc.id) ??
+        overridePorCurso.get(curso.id) ??
+        getIntentosDefaultExamen(examenData);
+      if ((intentos?.total ?? 0) >= intentosMaximos) return false;
+
+      const requiereCompletarCurso = examenData?.requiereCompletarCurso !== false;
+      return curso.formacionCompleta || ultimo !== undefined || !requiereCompletarCurso;
+    });
+    if (puedeRendirAlguno) resultado.add(curso.id);
+  });
+
+  return resultado;
+};
+
 export const buildStudentHomeCourses = async (
   cursosAsignados: string[],
   progreso: Record<string, Record<string, boolean>>,
-  modulosHabilitados: Record<string, boolean>
+  modulosHabilitados: Record<string, boolean>,
+  uid: string
 ): Promise<StudentHomeCourse[]> => {
   if (cursosAsignados.length === 0) return [];
 
@@ -149,7 +243,8 @@ export const buildStudentHomeCourses = async (
     });
   });
 
-  const homeCourses: StudentHomeCourse[] = [];
+  const homeCourses: Omit<StudentHomeCourse, "examenParaRendir">[] = [];
+  const formacionCompletaPorCurso = new Map<string, boolean>();
 
   for (const courseDoc of activeCourses) {
     const courseId = courseDoc.id;
@@ -167,6 +262,7 @@ export const buildStudentHomeCourses = async (
     }
 
     const enabledModuleIds: string[] = [];
+    let habilitadosConOSinDoc = 0;
     for (const materiaId of courseMateriaIds) {
       const materia = materiasById.get(materiaId);
       if (!materia) continue;
@@ -179,6 +275,7 @@ export const buildStudentHomeCourses = async (
           modulosHabilitados,
           estadoGlobalByKey
         );
+        if (enabled) habilitadosConOSinDoc++;
         if (enabled && modulosById.has(moduleId)) {
           enabledModuleIds.push(moduleId);
         }
@@ -195,6 +292,16 @@ export const buildStudentHomeCourses = async (
       progreso
     );
 
+    // Misma regla que getFormationProgress: sin módulos habilitados el curso cuenta como completo
+    formacionCompletaPorCurso.set(
+      courseId,
+      habilitadosConOSinDoc === 0 ||
+        (enabledModuleIds.length > 0 &&
+          enabledModuleIds.every((moduleId) =>
+            isModuleContentCompleted(moduleId, modulosById.get(moduleId)!, progreso[moduleId])
+          ))
+    );
+
     homeCourses.push({
       ...pickCourseForHome(formatFirestoreDoc(courseDoc)),
       progresoPorcentaje: contentProgress.percentage,
@@ -203,7 +310,21 @@ export const buildStudentHomeCourses = async (
     });
   }
 
-  return homeCourses;
+  // El aviso es un extra: si falla, el inicio se muestra igual, sin el aviso
+  let conExamen = new Set<string>();
+  try {
+    conExamen = await getCursosConExamenParaRendir(
+      uid,
+      homeCourses.map((course) => ({
+        id: course.id,
+        formacionCompleta: formacionCompletaPorCurso.get(course.id) === true,
+      }))
+    );
+  } catch (error) {
+    console.error("getCursosConExamenParaRendir error:", error);
+  }
+
+  return homeCourses.map((course) => ({ ...course, examenParaRendir: conExamen.has(course.id) }));
 };
 
 export const fetchStudentCourseContent = async (
