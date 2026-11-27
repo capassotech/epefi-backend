@@ -197,7 +197,8 @@ export const getStudentHomeCourses = async (
     const homeCourses = await buildStudentHomeCourses(
       cursosAsignados,
       progreso,
-      modulosHabilitados
+      modulosHabilitados,
+      id
     );
 
     return res.json({ cursos: homeCourses });

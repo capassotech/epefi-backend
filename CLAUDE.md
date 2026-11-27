@@ -20,6 +20,9 @@ Las reglas generales están en `../CLAUDE.md`. Ojo con los mensajes de error: se
 - Orden por `sortBy`/`sortDirection` (alumno, curso, examen, nota, fecha), que se leen en `parseExamenesRealizadosFilters`.
 - La búsqueda también matchea el título del curso y del examen.
 
+## Inicio del alumno — `src/utils/studentHomeService.ts`
+- Cada curso de `/cursos/user/:id/inicio` trae `examenParaRendir`: la misma regla que `puedeRealizar` del estado del examen, calculada con 2 lecturas por alumno (intentos con `select` y overrides de intentos). Si se cambia la regla de `puedeRealizar` en `studentController.ts`, cambiarla también acá.
+
 ## Exámenes con muchos alumnos a la vez
 - La estructura del curso y el examen se comparten con una caché de 30 s (`src/utils/shortCache.ts`, `examenCache.ts`, `formacionProgress.ts`). Todo cambio en un examen tiene que llamar a `invalidateExamenCache()`. Los cambios en materias o módulos tardan hasta 30 s en verse.
 - El envío es idempotente: con `idEnvio`, reenviar devuelve el intento ya guardado (id `uid__idExamen__idEnvio`).
